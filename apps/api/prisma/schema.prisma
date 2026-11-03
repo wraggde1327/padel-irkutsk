@@ -514,3 +514,12 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
 }
+
+// Назначение роли до первого входа. OWNER добавляет telegramId, роль применится при /auth.
+model StaffGrant {
+  id          String   @id @default(cuid())
+  telegramId  BigInt   @unique
+  role        Role
+  grantedById String?
+  createdAt   DateTime @default(now())
+}

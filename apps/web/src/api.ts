@@ -1,0 +1,54 @@
+const TOKEN_KEY = 'padel.jwt';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string | null): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const token = getToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(path, { ...init, headers });
+  const data = (await response.json().catch(() => ({}))) as T & { error?: { code: string; message: string } };
+  if (!response.ok) {
+    throw new Error(data.error?.message ?? `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+export type PublicUser = {
+  id: string;
+  telegramId: string;
+  firstName: string;
+  lastName: string | null;
+  username: string | null;
+  photoUrl: string | null;
+  role: 'PLAYER' | 'ADMIN' | 'OWNER';
+  lundaRating: string | number | null;
+  lundaStatus: string;
+  internalRating: number;
+};
+
+export type TournamentDto = {
+  id: string;
+  title: string;
+  status: string;
+  timezone: string;
+  feePairKopecks: number;
+  feeSoloKopecks: number;
+  registrationOpensAt: string | null;
+  registrationClosesAt: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  finalsAt: string | null;
+  prize: { fund: number; perDivision: number[]; organizer: number; gross: number };
+  clubs: Array<{ id: string; name: string; address: string | null }>;
+  sponsors: Array<{ id: string; name: string; description: string | null }>;
+};
