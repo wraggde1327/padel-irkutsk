@@ -1,0 +1,516 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Перечисления ----------
+
+enum Role {
+  PLAYER
+  ADMIN
+  OWNER
+}
+
+enum TournamentStatus {
+  DRAFT
+  REGISTRATION
+  QUALIFICATION
+  DIVISIONS_READY
+  PLAYOFF
+  FINALS
+  DONE
+  CANCELLED
+}
+
+enum EntryType {
+  PAIR
+  SOLO
+}
+
+enum EntryStatus {
+  PENDING_PARTNER // пара: напарник ещё не принял приглашение
+  PENDING_PAYMENT // ждём оплату
+  ACTIVE
+  WITHDRAWN
+  DISQUALIFIED
+}
+
+enum PaymentStatus {
+  CREATED
+  PAID
+  MISMATCH // пришла сумма, не совпадающая с ожидаемой
+  EXPIRED
+  REFUNDED
+  MANUAL_PAID // подтверждено админом вручную
+}
+
+enum StageType {
+  QUALIFICATION
+  PLAYOFF
+}
+
+enum RoundStatus {
+  DRAFT // жеребьёвка сделана, не опубликована
+  PUBLISHED
+  CLOSED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  RESULT_SUBMITTED
+  CONFIRMED
+  DISPUTED
+  TECH_LOSS // одному или обоим присуждено тех. поражение
+  NEEDS_ADMIN // срок вышел, решение за админом (плей-офф)
+  BYE
+  CANCELLED
+}
+
+enum TechLoss {
+  NONE
+  SIDE_A
+  SIDE_B
+  BOTH
+}
+
+enum ResultSource {
+  PLAYER_CONFIRMED // внёс победитель, подтвердил соперник
+  AUTO_CONFIRMED // подтверждено по таймауту
+  LUNDA_SCREENSHOT // скриншот Lunda, подтвердил админ
+  ADMIN
+}
+
+enum RatingStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum SponsorKind {
+  CLUB_DISCOUNT
+  LOGO
+}
+
+// ---------- Пользователи и клубы ----------
+
+model User {
+  id              String       @id @default(cuid())
+  telegramId      BigInt       @unique
+  username        String?
+  firstName       String
+  lastName        String?
+  photoUrl        String?
+  languageCode    String?
+  role            Role         @default(PLAYER)
+  canMessage      Boolean      @default(false) // бот может писать пользователю
+  lundaRating     Decimal?     @db.Decimal(2, 1) // указан игроком, шкала 1.0–7.0
+  lundaStatus     RatingStatus @default(UNVERIFIED)
+  lundaVerifiedAt DateTime?
+  lundaVerifiedBy String?
+  internalRating  Int          @default(1000) // рейтинг турнира (§8.9)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  captainEntries   Entry[]         @relation("EntryCaptain")
+  partnerEntries   Entry[]         @relation("EntryPartner")
+  proofs           RatingProof[]
+  ratingHistory    RatingHistory[]
+  notifications    Notification[]
+  submittedMatches Match[]         @relation("MatchSubmitter")
+  confirmedMatches Match[]         @relation("MatchConfirmer")
+}
+
+model Club {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  mapUrl    String?
+  phone     String?
+  logoUrl   String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  matches     Match[]
+  sponsors    Sponsor[]
+  tournaments Tournament[] @relation("FinalsClub")
+}
+
+// ---------- Турнир ----------
+
+model Tournament {
+  id                   String           @id @default(cuid())
+  title                String
+  status               TournamentStatus @default(DRAFT)
+  timezone             String           @default("Asia/Irkutsk")
+  feePairKopecks       Int              @default(400000) // 4000 ₽
+  feeSoloKopecks       Int              @default(200000) // допущение A2
+  organizerShareBp     Int              @default(3000) // 30% в базисных пунктах
+  divisionSharesBp     Int[] // [6000, 3000, 1000], допущение: 60/30/10
+  placeSharesBp        Int[] // [7000, 3000] внутри дивизиона, допущение A6
+  targetEntries        Int              @default(30)
+  maxEntries           Int?
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+  startsAt             DateTime?
+  endsAt               DateTime?
+  finalsAt             DateTime?
+  finalsClubId         String?
+  finalsNote           String?
+  finalsVideoUrl       String?
+  config               Json // TournamentConfig, см. §8.0
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  finalsClub Club?      @relation("FinalsClub", fields: [finalsClubId], references: [id])
+  entries    Entry[]
+  rounds     Round[]
+  divisions  Division[]
+  sides      Side[]
+  matches    Match[]
+  sponsors   Sponsor[]
+  payouts    Payout[]
+}
+
+model Division {
+  id           String   @id @default(cuid())
+  tournamentId String
+  number       Int // 1, 2, 3
+  title        String // «Дивизион 1»
+  size         Int
+  published    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  entries    Entry[]
+  sides      Side[]
+  matches    Match[]
+  payouts    Payout[]
+
+  @@unique([tournamentId, number])
+}
+
+// Запись участника: пара (2 игрока) или одиночка (1 игрок)
+model Entry {
+  id             String      @id @default(cuid())
+  tournamentId   String
+  type           EntryType
+  captainId      String
+  partnerId      String? // для PAIR после принятия приглашения
+  inviteCode     String?     @unique
+  status         EntryStatus @default(PENDING_PAYMENT)
+  ratingSnapshot Decimal?    @db.Decimal(2, 1) // рейтинг Lunda на момент регистрации (для пары — среднее)
+  divisionId     String?
+  divisionSeed   Int? // место в дивизионе после квалификации (посев в сетку)
+  withdrawnAt    DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  tournament  Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  captain     User        @relation("EntryCaptain", fields: [captainId], references: [id])
+  partner     User?       @relation("EntryPartner", fields: [partnerId], references: [id])
+  division    Division?   @relation(fields: [divisionId], references: [id])
+  payments    Payment[]
+  sideEntries SideEntry[]
+  standing    Standing?
+  payouts     Payout[]
+
+  @@unique([tournamentId, captainId])
+  @@index([tournamentId, status])
+  @@index([partnerId])
+}
+
+// ---------- Платежи ----------
+
+model Payment {
+  id               String        @id @default(cuid())
+  entryId          String
+  label            String        @unique // передаётся в ЮMoney как label (≤ 64 символов)
+  expectedKopecks  Int
+  status           PaymentStatus @default(CREATED)
+  operationId      String?       @unique // operation_id из уведомления ЮMoney
+  notificationType String?
+  receivedKopecks  Int? // amount из уведомления (зачислено получателю)
+  withdrawKopecks  Int? // withdraw_amount (списано с плательщика)
+  paidAt           DateTime?
+  expiresAt        DateTime
+  manualReason     String?
+  manualById       String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  entry  Entry          @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  events PaymentEvent[]
+
+  @@index([entryId])
+  @@index([status, expiresAt])
+}
+
+// Сырые входящие уведомления ЮMoney (журнал для разбора споров)
+model PaymentEvent {
+  id          String   @id @default(cuid())
+  paymentId   String?
+  operationId String?
+  signatureOk Boolean
+  accepted    Boolean
+  note        String?
+  payload     Json
+  receivedAt  DateTime @default(now())
+
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([operationId])
+}
+
+// ---------- Туры, стороны, матчи ----------
+
+model Round {
+  id           String      @id @default(cuid())
+  tournamentId String
+  stage        StageType
+  divisionId   String? // для плей-оффа: раунд конкретного дивизиона
+  number       Int // порядковый номер внутри этапа
+  title        String // «Квалификация, тур 1», «1/4 финала»
+  status       RoundStatus @default(DRAFT)
+  startsAt     DateTime
+  deadlineAt   DateTime // конец суток в Asia/Irkutsk, сохранён в UTC
+  seed         String // сид жеребьёвки для воспроизводимости
+  createdAt    DateTime    @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  sides      Side[]
+  matches    Match[]
+
+  @@unique([tournamentId, stage, number, divisionId])
+}
+
+// Сторона матча: фиксированная пара (1 Entry типа PAIR),
+// временная пара одиночек (2 Entry типа SOLO) или постоянная пара плей-оффа.
+model Side {
+  id           String   @id @default(cuid())
+  tournamentId String
+  roundId      String? // временная сторона квалификационного тура
+  divisionId   String? // постоянная сторона плей-оффа
+  isTemporary  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  tournament Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  round      Round?      @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  division   Division?   @relation(fields: [divisionId], references: [id])
+  entries    SideEntry[]
+  matchesAsA Match[]     @relation("MatchSideA")
+  matchesAsB Match[]     @relation("MatchSideB")
+  matchesWon Match[]     @relation("MatchWinner")
+}
+
+model SideEntry {
+  sideId  String
+  entryId String
+
+  side  Side  @relation(fields: [sideId], references: [id], onDelete: Cascade)
+  entry Entry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@id([sideId, entryId])
+  @@index([entryId])
+}
+
+model Match {
+  id                 String        @id @default(cuid())
+  tournamentId       String
+  roundId            String
+  divisionId         String?
+  sideAId            String
+  sideBId            String? // null = бай
+  status             MatchStatus   @default(SCHEDULED)
+  deadlineAt         DateTime // может быть продлён админом для одного матча
+  originalDeadlineAt DateTime
+  winnerSideId       String?
+  techLoss           TechLoss      @default(NONE)
+  resultSource       ResultSource?
+  clubId             String? // где сыграли
+  playedAt           DateTime?
+  bracketSlot        Int? // позиция в раунде сетки
+  nextMatchId        String? // куда идёт победитель
+  nextMatchSlot      String? // 'A' или 'B'
+  submittedById      String?
+  submittedAt        DateTime?
+  confirmedById      String?
+  confirmedAt        DateTime?
+  disputeReason      String?
+  noShowClaimById    String? // кто заявил «соперник не выходит на связь»
+  noShowClaimText    String?
+  noShowClaimAt      DateTime?
+  adminNote          String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  tournament Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  round      Round        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  division   Division?    @relation(fields: [divisionId], references: [id])
+  sideA      Side         @relation("MatchSideA", fields: [sideAId], references: [id])
+  sideB      Side?        @relation("MatchSideB", fields: [sideBId], references: [id])
+  winnerSide Side?        @relation("MatchWinner", fields: [winnerSideId], references: [id])
+  club       Club?        @relation(fields: [clubId], references: [id])
+  submitter  User?        @relation("MatchSubmitter", fields: [submittedById], references: [id])
+  confirmer  User?        @relation("MatchConfirmer", fields: [confirmedById], references: [id])
+  nextMatch  Match?       @relation("MatchNext", fields: [nextMatchId], references: [id])
+  feeders    Match[]      @relation("MatchNext")
+  sets       MatchSet[]
+  proofs     MatchProof[]
+
+  @@index([tournamentId, status, deadlineAt])
+  @@index([roundId])
+  @@index([sideAId])
+  @@index([sideBId])
+}
+
+model MatchSet {
+  id      String @id @default(cuid())
+  matchId String
+  number  Int // 1, 2, 3
+  gamesA  Int
+  gamesB  Int
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, number])
+}
+
+// Скриншоты результата матча (Lunda) и переписки
+model MatchProof {
+  id         String   @id @default(cuid())
+  matchId    String
+  uploadedBy String
+  kind       String // 'LUNDA_RESULT' | 'NO_SHOW_CHAT'
+  fileKey    String // ключ в хранилище
+  createdAt  DateTime @default(now())
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Таблица и рейтинги ----------
+
+// Кэш таблицы: пересчитывается транзакцией после каждого подтверждённого матча
+model Standing {
+  id           String   @id @default(cuid())
+  entryId      String   @unique
+  tournamentId String
+  played       Int      @default(0)
+  wins         Int      @default(0)
+  losses       Int      @default(0)
+  techLosses   Int      @default(0)
+  byes         Int      @default(0)
+  setsWon      Int      @default(0)
+  setsLost     Int      @default(0)
+  gamesWon     Int      @default(0)
+  gamesLost    Int      @default(0)
+  drawLot      Float // стабильный случайный ключ для жребия при полном равенстве
+  rank         Int?
+  updatedAt    DateTime @updatedAt
+
+  entry Entry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([tournamentId, wins])
+}
+
+model RatingProof {
+  id            String       @id @default(cuid())
+  userId        String
+  fileKey       String
+  declared      Decimal      @db.Decimal(2, 1)
+  status        RatingStatus @default(PENDING)
+  verifiedValue Decimal?     @db.Decimal(2, 1)
+  reviewerId    String?
+  reviewNote    String?
+  createdAt     DateTime     @default(now())
+  reviewedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+model RatingHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  matchId   String?
+  before    Int
+  after     Int
+  reason    String // 'MATCH' | 'INIT_FROM_LUNDA' | 'ADMIN'
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ---------- Призы, спонсоры, уведомления, аудит ----------
+
+model Payout {
+  id            String    @id @default(cuid())
+  tournamentId  String
+  divisionId    String
+  entryId       String?
+  place         Int // 1 или 2
+  amountKopecks Int
+  paidOutAt     DateTime?
+  note          String?
+  createdAt     DateTime  @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  division   Division   @relation(fields: [divisionId], references: [id])
+  entry      Entry?     @relation(fields: [entryId], references: [id])
+
+  @@unique([divisionId, place])
+}
+
+model Sponsor {
+  id           String      @id @default(cuid())
+  tournamentId String
+  clubId       String? // скидка конкретного клуба
+  kind         SponsorKind
+  name         String
+  logoUrl      String?
+  linkUrl      String?
+  description  String? // текст скидки вводит админ
+  sortOrder    Int         @default(0)
+  isActive     Boolean     @default(true)
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  club       Club?      @relation(fields: [clubId], references: [id])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String // 'REMINDER_72H' | 'MATCH_ASSIGNED' | ...
+  dedupeKey String    @unique // тип + сущность + срок, чтобы не слать дважды
+  payload   Json
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String // 'MATCH_RESULT_EDIT', 'PAYMENT_MANUAL', ...
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
