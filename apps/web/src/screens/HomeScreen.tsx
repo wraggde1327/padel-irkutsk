@@ -58,6 +58,9 @@ export function HomeScreen() {
         </div>
       </section>
       <p className="hint">{ru.home.nextDraw}</p>
+      <Link to="/profile" className="btn secondary">
+        {ru.home.openProfile}
+      </Link>
     </div>
   );
 }

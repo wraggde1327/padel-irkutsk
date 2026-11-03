@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api, getToken, type PublicUser, type TournamentDto } from './api';
 import { ru } from './i18n/ru';
 import { AdminApp } from './admin/AdminApp';
+import { IconBracket, IconHome, IconMatches, IconProfile, IconTable } from './icons';
 import { BracketScreen } from './screens/BracketScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { MatchesScreen } from './screens/MatchesScreen';
@@ -30,13 +32,13 @@ export function useTournament() {
   });
 }
 
-const TABS = [
-  { to: '/', id: 'home', label: ru.tabs.home },
-  { to: '/matches', id: 'matches', label: ru.tabs.matches },
-  { to: '/table', id: 'table', label: ru.tabs.table },
-  { to: '/bracket', id: 'bracket', label: ru.tabs.bracket },
-  { to: '/profile', id: 'profile', label: ru.tabs.profile },
-] as const;
+const TABS: Array<{ to: string; id: string; label: string; icon: ReactNode }> = [
+  { to: '/', id: 'home', label: ru.tabs.home, icon: <IconHome /> },
+  { to: '/matches', id: 'matches', label: ru.tabs.matches, icon: <IconMatches /> },
+  { to: '/table', id: 'table', label: ru.tabs.table, icon: <IconTable /> },
+  { to: '/bracket', id: 'bracket', label: ru.tabs.bracket, icon: <IconBracket /> },
+  { to: '/profile', id: 'profile', label: ru.tabs.profile, icon: <IconProfile /> },
+];
 
 export function App() {
   return (
@@ -72,11 +74,20 @@ function PlayerShell() {
       </div>
       {!hideTabs && (
         <nav className="tabbar" aria-label="Разделы">
-          {TABS.map((tab) => (
-            <Link key={tab.id} to={tab.to} className={'tab' + (location.pathname === tab.to ? ' is-on' : '')}>
-              <span>{tab.label}</span>
-            </Link>
-          ))}
+          {TABS.map((tab) => {
+            const on = location.pathname === tab.to;
+            return (
+              <Link
+                key={tab.id}
+                to={tab.to}
+                className={'tab' + (on ? ' is-on' : '')}
+                aria-current={on ? 'page' : undefined}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </Link>
+            );
+          })}
         </nav>
       )}
     </div>

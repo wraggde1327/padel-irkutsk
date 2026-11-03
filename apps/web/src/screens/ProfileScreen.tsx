@@ -36,7 +36,7 @@ export function ProfileScreen() {
           {ru.profile.adminLink}
         </Link>
       )}
-      <DevLogin />
+      <DevLogin loggedIn={Boolean(user)} />
     </div>
   );
 }
@@ -48,7 +48,7 @@ function roleLabel(role?: PublicUser['role']): string {
   return ru.profile.openTelegram;
 }
 
-function DevLogin() {
+function DevLogin({ loggedIn }: { loggedIn: boolean }) {
   const query = useQueryClient();
   const login = async (telegramId: string, firstName: string) => {
     const result = await api<{ token: string }>('/api/v1/auth/dev', {
@@ -61,6 +61,7 @@ function DevLogin() {
   return (
     <section className="card">
       <div className="label">{ru.profile.loginDev}</div>
+      <p className="hint">{ru.profile.switchHint}</p>
       <div className="row">
         <button type="button" className="btn secondary" onClick={() => void login('1001', 'Игрок')}>
           {ru.profile.asPlayer}
@@ -72,6 +73,18 @@ function DevLogin() {
       <button type="button" className="btn secondary" onClick={() => void login('9009', 'Владелец')}>
         {ru.profile.asOwner}
       </button>
+      {loggedIn && (
+        <button
+          type="button"
+          className="btn secondary"
+          onClick={() => {
+            setToken(null);
+            void query.invalidateQueries();
+          }}
+        >
+          {ru.profile.logout}
+        </button>
+      )}
     </section>
   );
 }

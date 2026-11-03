@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import type { Me } from '../App';
 import { api } from '../api';
+import { IconDraw, IconOverview, IconPartner, IconPin, IconSettings, IconStaff, IconTrophy } from '../icons';
 import { ru } from '../i18n/ru';
 
 const SELECTED_KEY = 'padel.admin.tournamentId';
@@ -63,14 +64,14 @@ export function AdminApp({ me }: { me: Me }) {
           {ru.admin.back}
         </Link>
       </header>
-      <nav className="admin-nav">
-        <AdminLink to="/admin" end label={ru.admin.overview} />
-        <AdminLink to="/admin/championships" label={ru.admin.championships} />
-        <AdminLink to="/admin/settings" label={ru.admin.settings} />
-        <AdminLink to="/admin/clubs" label={ru.admin.clubs} />
-        <AdminLink to="/admin/sponsors" label={ru.admin.sponsors} />
-        <AdminLink to="/admin/draw" label={ru.admin.draw} />
-        {me.user.role === 'OWNER' && <AdminLink to="/admin/staff" label={ru.admin.staff} />}
+      <nav className="admin-nav" aria-label="Админка">
+        <AdminLink to="/admin" end label={ru.admin.overview} icon={<IconOverview />} />
+        <AdminLink to="/admin/championships" label={ru.admin.championships} icon={<IconTrophy />} />
+        <AdminLink to="/admin/settings" label={ru.admin.settings} icon={<IconSettings />} />
+        <AdminLink to="/admin/clubs" label={ru.admin.clubs} icon={<IconPin />} />
+        <AdminLink to="/admin/sponsors" label={ru.admin.sponsors} icon={<IconPartner />} />
+        <AdminLink to="/admin/draw" label={ru.admin.draw} icon={<IconDraw />} />
+        {me.user.role === 'OWNER' && <AdminLink to="/admin/staff" label={ru.admin.staff} icon={<IconStaff />} />}
       </nav>
       <div className="admin-body">
         <Routes>
@@ -87,10 +88,11 @@ export function AdminApp({ me }: { me: Me }) {
   );
 }
 
-function AdminLink({ to, label, end }: { to: string; label: string; end?: boolean }) {
+function AdminLink({ to, label, end, icon }: { to: string; label: string; end?: boolean; icon: ReactNode }) {
   return (
     <NavLink to={to} end={end} className={({ isActive }) => 'admin-link' + (isActive ? ' is-on' : '')}>
-      {label}
+      {icon}
+      <span>{label}</span>
     </NavLink>
   );
 }
