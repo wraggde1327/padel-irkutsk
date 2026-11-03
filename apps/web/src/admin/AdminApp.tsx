@@ -122,10 +122,32 @@ function ChampionshipPicker({
 }
 
 function Overview() {
+  const query = useQueryClient();
+  const { data: tours } = useTournaments();
+  const { current } = useSelectedId(tours);
   const { data } = useQuery({
     queryKey: ['admin-overview'],
-    queryFn: () => api<{ entries: number; payments: number; disputes: number; pendingRatings: number; tournaments: number }>('/api/v1/admin/overview'),
+    queryFn: () =>
+      api<{ entries: number; payments: number; disputes: number; pendingRatings: number; tournaments: number; matches: number; sandbox: boolean }>(
+        '/api/v1/admin/overview',
+      ),
   });
+  const [message, setMessage] = useState('');
+  const fill = useMutation({
+    mutationFn: () => api<{ message: string }>('/api/v1/admin/sandbox/fill', { method: 'POST', body: JSON.stringify({ tournamentId: current?.id }) }),
+    onSuccess: (result) => {
+      setMessage(result.message);
+      void query.invalidateQueries();
+    },
+  });
+  const play = useMutation({
+    mutationFn: () => api<{ message: string }>('/api/v1/admin/sandbox/play', { method: 'POST', body: JSON.stringify({ tournamentId: current?.id }) }),
+    onSuccess: (result) => {
+      setMessage(result.message);
+      void query.invalidateQueries();
+    },
+  });
+  const busy = fill.isPending || play.isPending;
   return (
     <div className="page">
       <div className="title">{ru.admin.overview}</div>
@@ -133,8 +155,26 @@ function Overview() {
         <Stat n={data?.tournaments} label="чемпионатов" />
         <Stat n={data?.entries} label="записей" />
         <Stat n={data?.payments} label="оплат" />
-        <Stat n={data?.disputes} label="споров" />
+        <Stat n={data?.matches} label="матчей" />
       </div>
+      {data?.sandbox && (
+        <section className="card">
+          <div className="label">{ru.admin.sandbox}</div>
+          <p className="hint">{ru.admin.fillHint}</p>
+          <button type="button" className="btn secondary" disabled={busy || !current} onClick={() => fill.mutate()}>
+            {ru.admin.fillRandom}
+          </button>
+          <p className="hint">{ru.admin.playHint}</p>
+          <button type="button" className="btn primary" disabled={busy || !current} onClick={() => play.mutate()}>
+            {busy ? ru.admin.sandboxWait : ru.admin.playRandom}
+          </button>
+          {(message || fill.isError || play.isError) && (
+            <div className={'status ' + (fill.isError || play.isError ? 'wait' : 'ok')}>
+              {message || (fill.error as Error | undefined)?.message || (play.error as Error | undefined)?.message}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

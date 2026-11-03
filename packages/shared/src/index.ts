@@ -4,3 +4,7 @@ export * from './draw';
 export * from './divisions';
 export * from './money';
 export * from './schemas';
+export * from './people';
+export * from './score';
+export * from './bracket';
+export * from './standings';

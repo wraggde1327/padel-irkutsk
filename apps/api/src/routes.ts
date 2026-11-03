@@ -15,8 +15,10 @@ import { requireOwner, requireStaff, requireUser, signUser, upsertFromTelegram, 
 import { env } from './env';
 import { fail } from './errors';
 import { ru } from './i18n/ru';
+import { serializeMatch } from './presenters';
 import { prisma } from './prisma';
 import { serializeTournament } from './publicTournament';
+import { fillChampionship, materializeQualRound, playThrough } from './sandbox';
 
 async function currentTournament() {
   return prisma.tournament.findFirst({
@@ -24,6 +26,14 @@ async function currentTournament() {
     include: { finalsClub: true },
   });
 }
+
+const matchInclude = {
+  sets: true,
+  sideA: { include: { entries: { include: { entry: { include: { captain: true, partner: true } } } } } },
+  sideB: { include: { entries: { include: { entry: { include: { captain: true, partner: true } } } } } },
+  round: true,
+  division: true,
+} as const;
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/health', async () => ({ ok: true, service: 'api' }));
@@ -67,7 +77,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           },
         })
       : null;
-    return { user: publicUser(user), entry, isStaff: user.role === 'ADMIN' || user.role === 'OWNER' };
+    return { user: publicUser(user), entry, isStaff: user.role === 'ADMIN' || user.role === 'OWNER', sandbox: env.allowDevLogin };
   });
 
   app.get('/api/v1/tournament', async () => {
@@ -99,16 +109,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       select: { id: true },
     });
     const entryIds = entries.map((row) => row.id);
-    if (entryIds.length === 0) return { matches: [] };
     const matches = await prisma.match.findMany({
       where: {
         round: { status: 'PUBLISHED' },
-        OR: [{ sideA: { entries: { some: { entryId: { in: entryIds } } } } }, { sideB: { entries: { some: { entryId: { in: entryIds } } } } }],
+        ...(entryIds.length
+          ? { OR: [{ sideA: { entries: { some: { entryId: { in: entryIds } } } } }, { sideB: { entries: { some: { entryId: { in: entryIds } } } } }] }
+          : {}),
       },
-      include: { sideA: { include: { entries: { include: { entry: true } } } }, sideB: { include: { entries: { include: { entry: true } } } }, round: true },
-      orderBy: { deadlineAt: 'asc' },
+      include: matchInclude,
+      orderBy: [{ round: { stage: 'asc' } }, { deadlineAt: 'asc' }],
     });
-    return { matches };
+    return { matches: matches.map(serializeMatch), mine: entryIds.length > 0 };
+  });
+
+  app.get('/api/v1/matches', async () => {
+    const tournament = await currentTournament();
+    if (!tournament) return { matches: [] };
+    const matches = await prisma.match.findMany({
+      where: { tournamentId: tournament.id, round: { status: 'PUBLISHED' } },
+      include: matchInclude,
+      orderBy: [{ round: { stage: 'asc' } }, { round: { number: 'asc' } }, { createdAt: 'asc' }],
+    });
+    return { matches: matches.map(serializeMatch) };
   });
 
   app.get('/api/v1/standings', async () => {
@@ -119,19 +141,87 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       include: { entry: { include: { captain: true, partner: true } } },
       orderBy: { rank: 'asc' },
     });
-    return { rows };
+    return {
+      rows: rows.map((row) => ({
+        rank: row.rank,
+        played: row.played,
+        wins: row.wins,
+        losses: row.losses,
+        byes: row.byes,
+        setsWon: row.setsWon,
+        setsLost: row.setsLost,
+        gamesWon: row.gamesWon,
+        gamesLost: row.gamesLost,
+        label:
+          row.entry.type === 'PAIR'
+            ? `${row.entry.captain.firstName} / ${row.entry.partner?.firstName ?? '…'}`
+            : row.entry.captain.firstName,
+        type: row.entry.type,
+      })),
+    };
+  });
+
+  app.get('/api/v1/bracket', async () => {
+    const tournament = await currentTournament();
+    if (!tournament) return { divisions: [] };
+    const divisions = await prisma.division.findMany({
+      where: { tournamentId: tournament.id, published: true },
+      orderBy: { number: 'asc' },
+    });
+    const payload = [];
+    for (const division of divisions) {
+      const rounds = await prisma.round.findMany({
+        where: { tournamentId: tournament.id, stage: 'PLAYOFF', divisionId: division.id, status: 'PUBLISHED' },
+        include: { matches: { include: matchInclude, orderBy: { bracketSlot: 'asc' } } },
+        orderBy: { number: 'asc' },
+      });
+      payload.push({
+        id: division.id,
+        number: division.number,
+        title: division.title,
+        rounds: rounds.map((round) => ({
+          id: round.id,
+          title: round.title,
+          matches: round.matches.map(serializeMatch),
+        })),
+      });
+    }
+    return { divisions: payload };
   });
 
   app.get('/api/v1/admin/overview', async (request) => {
     await requireStaff(request);
-    const [entries, payments, disputes, pendingRatings, tournaments] = await Promise.all([
+    const [entries, payments, disputes, pendingRatings, tournaments, matches] = await Promise.all([
       prisma.entry.count(),
       prisma.payment.count({ where: { status: { in: ['PAID', 'MANUAL_PAID'] } } }),
       prisma.match.count({ where: { status: 'DISPUTED' } }),
       prisma.ratingProof.count({ where: { status: 'PENDING' } }),
       prisma.tournament.count(),
+      prisma.match.count({ where: { status: { in: ['CONFIRMED', 'BYE'] } } }),
     ]);
-    return { entries, payments, disputes, pendingRatings, tournaments };
+    return { entries, payments, disputes, pendingRatings, tournaments, matches, sandbox: env.allowDevLogin };
+  });
+
+  app.post('/api/v1/admin/sandbox/fill', async (request) => {
+    const actor = await requireStaff(request);
+    if (!env.allowDevLogin) fail(403, 'DEV_OFF', ru.devLoginOff);
+    const body = (request.body ?? {}) as { tournamentId?: string };
+    const tournament = body.tournamentId
+      ? await prisma.tournament.findUnique({ where: { id: body.tournamentId } })
+      : await currentTournament();
+    if (!tournament) fail(404, 'NOT_FOUND', ru.tournamentMissing);
+    return fillChampionship(tournament.id, actor, tournament.targetEntries || 30);
+  });
+
+  app.post('/api/v1/admin/sandbox/play', async (request) => {
+    const actor = await requireStaff(request);
+    if (!env.allowDevLogin) fail(403, 'DEV_OFF', ru.devLoginOff);
+    const body = (request.body ?? {}) as { tournamentId?: string };
+    const tournament = body.tournamentId
+      ? await prisma.tournament.findUnique({ where: { id: body.tournamentId } })
+      : await currentTournament();
+    if (!tournament) fail(404, 'NOT_FOUND', ru.tournamentMissing);
+    return playThrough(tournament.id, actor);
   });
 
   app.get('/api/v1/admin/tournaments', async (request) => {
@@ -288,24 +378,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = drawGenerateSchema.parse(request.body);
     const preview = await buildDrawPreview(body.tournamentId, body.seed);
     if (preview.entries === 0) fail(409, 'EMPTY', ru.drawEmpty);
-    const tournament = await prisma.tournament.findUnique({ where: { id: body.tournamentId } });
-    if (!tournament) fail(404, 'NOT_FOUND', ru.tournamentMissing);
-    const startsAt = new Date();
-    const deadlineAt = new Date(startsAt.getTime() + parseTournamentConfig(tournament.config).qualRoundDays * 86400000);
-    const round = await prisma.round.create({
-      data: {
-        tournamentId: tournament.id,
-        stage: 'QUALIFICATION',
-        number: (await prisma.round.count({ where: { tournamentId: tournament.id, stage: 'QUALIFICATION' } })) + 1,
-        title: 'Квалификация, черновик',
-        status: 'DRAFT',
-        startsAt,
-        deadlineAt,
-        seed: preview.seed,
-      },
-    });
+    const number = (await prisma.round.count({ where: { tournamentId: body.tournamentId, stage: 'QUALIFICATION' } })) + 1;
+    const { round } = await materializeQualRound(body.tournamentId, number, preview.seed, null);
+    await prisma.round.update({ where: { id: round.id }, data: { status: 'DRAFT', title: `Квалификация, черновик ${number}` } });
     await audit(actor.id, 'ROUND_DRAFT', 'Round', round.id, null, preview);
-    return { round, preview, message: ru.drawSaved };
+    return { round: { ...round, status: 'DRAFT' }, preview, message: ru.drawSaved };
   });
 
   app.post('/api/v1/admin/rounds/:id/publish', async (request) => {
