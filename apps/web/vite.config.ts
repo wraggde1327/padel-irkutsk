@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     host: true,
     port: 4174,
+    allowedHosts: true,
     proxy: {
       '/api': 'http://127.0.0.1:4822',
       '/health': 'http://127.0.0.1:4822',
