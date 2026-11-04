@@ -1,16 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { api, getToken, type PublicUser, type TournamentDto } from './api';
+import { api, getToken, rememberedTournament, type PublicUser } from './api';
 import { ru } from './i18n/ru';
 import { AdminApp } from './admin/AdminApp';
 import { IconBracket, IconHome, IconMatches, IconProfile, IconTable } from './icons';
 import { BracketScreen } from './screens/BracketScreen';
-import { HomeScreen } from './screens/HomeScreen';
+import { HomeScreen, TournamentsScreen } from './screens/HomeScreen';
 import { MatchesScreen } from './screens/MatchesScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
 import { TableScreen } from './screens/TableScreen';
+import { TournamentScreen } from './screens/TournamentScreen';
 import { safeAreaStyle } from './theme';
 
 export type Me = { user: PublicUser; isStaff: boolean };
@@ -23,22 +24,6 @@ export function useMe() {
     retry: false,
   });
 }
-
-export function useTournament() {
-  return useQuery({
-    queryKey: ['tournament'],
-    queryFn: () => api<TournamentDto>('/api/v1/tournament'),
-    retry: false,
-  });
-}
-
-const TABS: Array<{ to: string; id: string; label: string; icon: ReactNode }> = [
-  { to: '/', id: 'home', label: ru.tabs.home, icon: <IconHome /> },
-  { to: '/matches', id: 'matches', label: ru.tabs.matches, icon: <IconMatches /> },
-  { to: '/table', id: 'table', label: ru.tabs.table, icon: <IconTable /> },
-  { to: '/bracket', id: 'bracket', label: ru.tabs.bracket, icon: <IconBracket /> },
-  { to: '/profile', id: 'profile', label: ru.tabs.profile, icon: <IconProfile /> },
-];
 
 export function App() {
   return (
@@ -59,7 +44,7 @@ function AdminGate() {
 
 function PlayerShell() {
   const location = useLocation();
-  const hideTabs = location.pathname === '/register';
+  const hideTabs = /\/register$/.test(location.pathname);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [barHidden, setBarHidden] = useState(false);
   useEffect(() => {
@@ -86,31 +71,48 @@ function PlayerShell() {
       <div className="shell-body" ref={bodyRef}>
         <Routes>
           <Route path="/" element={<HomeScreen />} />
-          <Route path="/register" element={<RegisterScreen />} />
+          <Route path="/tournaments" element={<TournamentsScreen />} />
+          <Route path="/t/:id" element={<TournamentScreen />} />
+          <Route path="/t/:id/register" element={<RegisterScreen />} />
+          <Route path="/t/:id/matches" element={<MatchesScreen />} />
+          <Route path="/t/:id/table" element={<TableScreen />} />
+          <Route path="/t/:id/bracket" element={<BracketScreen />} />
+          <Route path="/register" element={<LegacyRegister />} />
           <Route path="/matches" element={<MatchesScreen />} />
           <Route path="/table" element={<TableScreen />} />
           <Route path="/bracket" element={<BracketScreen />} />
           <Route path="/profile" element={<ProfileScreen />} />
         </Routes>
       </div>
-      {!hideTabs && (
-        <nav className={'tabbar' + (barHidden ? ' is-hidden' : '')} aria-label="Разделы">
-          {TABS.map((tab) => {
-            const on = location.pathname === tab.to;
-            return (
-              <Link
-                key={tab.id}
-                to={tab.to}
-                className={'tab' + (on ? ' is-on' : '')}
-                aria-current={on ? 'page' : undefined}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-      )}
+      {!hideTabs && <TabBar hidden={barHidden} />}
     </div>
+  );
+}
+
+function LegacyRegister() {
+  const id = rememberedTournament();
+  if (id) return <Navigate to={`/t/${id}/register`} replace />;
+  return <Navigate to="/tournaments" replace />;
+}
+
+function TabBar({ hidden }: { hidden: boolean }) {
+  const location = useLocation();
+  const tid = location.pathname.match(/^\/t\/([^/]+)/)?.[1] || rememberedTournament();
+  const tabs: Array<{ to: string; id: string; label: string; icon: ReactNode; on: boolean }> = [
+    { to: '/', id: 'home', label: ru.tabs.home, icon: <IconHome />, on: location.pathname === '/' || location.pathname === '/tournaments' },
+    { to: tid ? `/t/${tid}/matches` : '/tournaments', id: 'matches', label: ru.tabs.matches, icon: <IconMatches />, on: location.pathname.includes('/matches') },
+    { to: tid ? `/t/${tid}/table` : '/tournaments', id: 'table', label: ru.tabs.table, icon: <IconTable />, on: location.pathname.includes('/table') },
+    { to: tid ? `/t/${tid}/bracket` : '/tournaments', id: 'bracket', label: ru.tabs.bracket, icon: <IconBracket />, on: location.pathname.includes('/bracket') },
+    { to: '/profile', id: 'profile', label: ru.tabs.profile, icon: <IconProfile />, on: location.pathname === '/profile' },
+  ];
+  return (
+    <nav className={'tabbar' + (hidden ? ' is-hidden' : '')} aria-label="Разделы">
+      {tabs.map((tab) => (
+        <Link key={tab.id} to={tab.to} className={'tab' + (tab.on ? ' is-on' : '')} aria-current={tab.on ? 'page' : undefined}>
+          {tab.icon}
+          <span>{tab.label}</span>
+        </Link>
+      ))}
+    </nav>
   );
 }

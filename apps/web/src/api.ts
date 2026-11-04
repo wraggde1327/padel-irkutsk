@@ -1,13 +1,21 @@
 const TOKEN_KEY = 'padel.jwt';
+const TOURNAMENT_KEY = 'padel.player.tournamentId';
 
 export const isStaticDemo = import.meta.env.VITE_STATIC_DEMO === '1';
 
 const DEMO_GET: Record<string, string> = {
   '/api/v1/tournament': 'tournament.json',
+  '/api/v1/tournaments': 'tournaments.json',
   '/api/v1/matches': 'matches.json',
   '/api/v1/standings': 'standings.json',
   '/api/v1/bracket': 'bracket.json',
 };
+
+function demoFile(path: string): string | null {
+  const key = path.split('?')[0];
+  if (key.startsWith('/api/v1/tournaments/') && !key.endsWith('/entries')) return 'tournament.json';
+  return DEMO_GET[key] ?? null;
+}
 
 function demoAsset(file: string): string {
   const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
@@ -23,11 +31,18 @@ export function setToken(token: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+export function rememberTournament(id: string): void {
+  sessionStorage.setItem(TOURNAMENT_KEY, id);
+}
+
+export function rememberedTournament(): string {
+  return sessionStorage.getItem(TOURNAMENT_KEY) ?? '';
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (isStaticDemo) {
     const method = (init.method ?? 'GET').toUpperCase();
-    const key = path.split('?')[0];
-    const file = DEMO_GET[key];
+    const file = demoFile(path);
     if (method !== 'GET' || !file) {
       throw new Error('Это публичное демо: запись и вход отключены. Полный запуск — у себя или в Telegram.');
     }
@@ -61,6 +76,15 @@ export type PublicUser = {
   internalRating: number;
 };
 
+export type TournamentCard = {
+  id: string;
+  title: string;
+  status: string;
+  startsAt: string | null;
+  feePairKopecks: number;
+  joined: boolean;
+};
+
 export type TournamentDto = {
   id: string;
   title: string;
@@ -73,7 +97,10 @@ export type TournamentDto = {
   startsAt: string | null;
   endsAt: string | null;
   finalsAt: string | null;
-  prize: { fund: number; perDivision: number[]; organizer: number; gross: number };
+  conditions: string | null;
+  prizeEnabled: boolean;
+  prize: { fund: number; perDivision: number[]; organizer: number; gross: number } | null;
   clubs: Array<{ id: string; name: string; address: string | null }>;
   sponsors: Array<{ id: string; name: string; description: string | null }>;
+  joined?: boolean;
 };

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
 import { PageHeader } from '../PageHeader';
-import { api } from '../api';
+import { api, rememberedTournament } from '../api';
 import { IconMatches } from '../icons';
 import { ru } from '../i18n/ru';
 
@@ -19,14 +20,17 @@ export type MatchDto = {
 };
 
 export function MatchesScreen() {
+  const { id } = useParams<{ id: string }>();
+  const tournamentId = id || rememberedTournament();
+  const q = tournamentId ? `?tournamentId=${tournamentId}` : '';
   const { data } = useQuery({
-    queryKey: ['matches'],
-    queryFn: () => api<{ matches: MatchDto[] }>('/api/v1/matches'),
+    queryKey: ['matches', tournamentId],
+    queryFn: () => api<{ matches: MatchDto[] }>(`/api/v1/matches${q}`),
   });
   const matches = data?.matches ?? [];
   return (
     <div className="page">
-      <PageHeader title={ru.matches.title} />
+      <PageHeader title={ru.matches.title} backTo={tournamentId ? `/t/${tournamentId}` : '/'} />
       {matches.length === 0 && (
         <section className="card empty">
           <IconMatches />

@@ -5,25 +5,59 @@ import {
   clubWriteSchema,
   DEFAULT_TOURNAMENT_CONFIG,
   drawGenerateSchema,
+  entryWriteSchema,
   generateQualDraw,
   parseTournamentConfig,
   sponsorWriteSchema,
   staffGrantBodySchema,
   tournamentWriteSchema,
 } from '@padel/shared';
-import { requireOwner, requireStaff, requireUser, signUser, upsertFromTelegram, verifyTelegramInitData } from './auth';
+import { optionalUser, requireOwner, requireStaff, requireUser, signUser, upsertFromTelegram, verifyTelegramInitData } from './auth';
 import { env } from './env';
 import { fail } from './errors';
 import { ru } from './i18n/ru';
 import { serializeMatch } from './presenters';
 import { prisma } from './prisma';
-import { serializeTournament } from './publicTournament';
+import { serializeTournament, serializeTournamentCard } from './publicTournament';
 import { fillChampionship, materializeQualRound, playThrough } from './sandbox';
 
 async function currentTournament() {
   return prisma.tournament.findFirst({
     orderBy: { createdAt: 'desc' },
     include: { finalsClub: true },
+  });
+}
+
+async function tournamentById(id?: string) {
+  if (id) {
+    return prisma.tournament.findUnique({ where: { id }, include: { finalsClub: true } });
+  }
+  return currentTournament();
+}
+
+async function publicTournamentPayload(tournament: NonNullable<Awaited<ReturnType<typeof currentTournament>>>, userId?: string) {
+  const [venues, sponsors, paid, entry] = await Promise.all([
+    prisma.tournamentClub.findMany({
+      where: { tournamentId: tournament.id, club: { isActive: true } },
+      include: { club: true },
+      orderBy: { club: { sortOrder: 'asc' } },
+    }),
+    prisma.sponsor.findMany({ where: { tournamentId: tournament.id, isActive: true }, orderBy: { sortOrder: 'asc' } }),
+    prisma.payment.findMany({
+      where: { entry: { tournamentId: tournament.id }, status: { in: ['PAID', 'MANUAL_PAID'] } },
+      select: { expectedKopecks: true },
+    }),
+    userId
+      ? prisma.entry.findFirst({
+          where: { tournamentId: tournament.id, OR: [{ captainId: userId }, { partnerId: userId }] },
+        })
+      : Promise.resolve(null),
+  ]);
+  return serializeTournament(tournament, {
+    clubs: venues.map((row) => row.club),
+    sponsors,
+    paidKopecks: paid.map((row) => row.expectedKopecks),
+    joined: Boolean(entry),
   });
 }
 
@@ -80,22 +114,71 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { user: publicUser(user), entry, isStaff: user.role === 'ADMIN' || user.role === 'OWNER', sandbox: env.allowDevLogin };
   });
 
-  app.get('/api/v1/tournament', async () => {
+  app.get('/api/v1/tournaments', async (request) => {
+    const user = await optionalUser(request);
+    const visible = await prisma.tournament.findMany({
+      where: { status: { notIn: ['DRAFT', 'CANCELLED'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    const mineIds = new Set<string>();
+    if (user) {
+      const entries = await prisma.entry.findMany({
+        where: {
+          OR: [{ captainId: user.id }, { partnerId: user.id }],
+          status: { notIn: ['WITHDRAWN', 'DISQUALIFIED'] },
+        },
+        select: { tournamentId: true },
+      });
+      for (const row of entries) mineIds.add(row.tournamentId);
+    }
+    const mine = await prisma.tournament.findMany({
+      where: { id: { in: [...mineIds] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      available: visible.filter((row) => !mineIds.has(row.id)).map((row) => serializeTournamentCard(row, false)),
+      mine: mine.map((row) => serializeTournamentCard(row, true)),
+    };
+  });
+
+  app.get('/api/v1/tournaments/:id', async (request) => {
+    const user = await optionalUser(request);
+    const { id } = request.params as { id: string };
+    const tournament = await tournamentById(id);
+    if (!tournament) fail(404, 'NOT_FOUND', ru.tournamentMissing);
+    if ((tournament.status === 'DRAFT' || tournament.status === 'CANCELLED') && user?.role !== 'ADMIN' && user?.role !== 'OWNER') {
+      fail(404, 'NOT_FOUND', ru.tournamentMissing);
+    }
+    return publicTournamentPayload(tournament, user?.id);
+  });
+
+  app.post('/api/v1/tournaments/:id/entries', async (request) => {
+    const user = await requireUser(request);
+    const { id } = request.params as { id: string };
+    const body = entryWriteSchema.parse(request.body);
+    const tournament = await prisma.tournament.findUnique({ where: { id } });
+    if (!tournament) fail(404, 'NOT_FOUND', ru.tournamentMissing);
+    const existing = await prisma.entry.findFirst({
+      where: { tournamentId: id, OR: [{ captainId: user.id }, { partnerId: user.id }] },
+    });
+    if (existing) return { entry: existing, already: true };
+    const entry = await prisma.entry.create({
+      data: {
+        tournamentId: id,
+        type: body.type,
+        captainId: user.id,
+        status: env.allowDevLogin ? 'ACTIVE' : 'PENDING_PAYMENT',
+        ratingSnapshot: body.rating ?? null,
+      },
+    });
+    return { entry, already: false };
+  });
+
+  app.get('/api/v1/tournament', async (request) => {
+    const user = await optionalUser(request);
     const tournament = await currentTournament();
     if (!tournament) fail(404, 'NOT_FOUND', ru.tournamentMissing);
-    const [clubs, sponsors, paid] = await Promise.all([
-      prisma.club.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
-      prisma.sponsor.findMany({ where: { tournamentId: tournament.id, isActive: true }, orderBy: { sortOrder: 'asc' } }),
-      prisma.payment.findMany({
-        where: { entry: { tournamentId: tournament.id }, status: { in: ['PAID', 'MANUAL_PAID'] } },
-        select: { expectedKopecks: true },
-      }),
-    ]);
-    return serializeTournament(tournament, {
-      clubs,
-      sponsors,
-      paidKopecks: paid.map((row) => row.expectedKopecks),
-    });
+    return publicTournamentPayload(tournament, user?.id);
   });
 
   app.get('/api/v1/clubs', async () =>
@@ -122,8 +205,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { matches: matches.map(serializeMatch), mine: entryIds.length > 0 };
   });
 
-  app.get('/api/v1/matches', async () => {
-    const tournament = await currentTournament();
+  app.get('/api/v1/matches', async (request) => {
+    const q = request.query as { tournamentId?: string };
+    const tournament = await tournamentById(q.tournamentId);
     if (!tournament) return { matches: [] };
     const matches = await prisma.match.findMany({
       where: { tournamentId: tournament.id, round: { status: 'PUBLISHED' } },
@@ -133,8 +217,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { matches: matches.map(serializeMatch) };
   });
 
-  app.get('/api/v1/standings', async () => {
-    const tournament = await currentTournament();
+  app.get('/api/v1/standings', async (request) => {
+    const q = request.query as { tournamentId?: string };
+    const tournament = await tournamentById(q.tournamentId);
     if (!tournament) return { rows: [] };
     const rows = await prisma.standing.findMany({
       where: { tournamentId: tournament.id },
@@ -161,8 +246,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get('/api/v1/bracket', async () => {
-    const tournament = await currentTournament();
+  app.get('/api/v1/bracket', async (request) => {
+    const q = request.query as { tournamentId?: string };
+    const tournament = await tournamentById(q.tournamentId);
     if (!tournament) return { divisions: [] };
     const divisions = await prisma.division.findMany({
       where: { tournamentId: tournament.id, published: true },
@@ -226,7 +312,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/v1/admin/tournaments', async (request) => {
     await requireStaff(request);
-    return prisma.tournament.findMany({ orderBy: { createdAt: 'desc' } });
+    const rows = await prisma.tournament.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { venues: true },
+    });
+    return rows.map((row) => ({ ...row, clubIds: row.venues.map((venue) => venue.clubId) }));
   });
 
   app.post('/api/v1/admin/tournaments', async (request) => {
@@ -247,11 +337,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         endsAt: body.endsAt ? new Date(body.endsAt) : null,
         finalsAt: body.finalsAt ? new Date(body.finalsAt) : null,
         finalsNote: body.finalsNote ?? null,
+        conditions: body.conditions ?? null,
+        prizeEnabled: body.prizeEnabled ?? false,
         divisionSharesBp: [6000, 3000, 1000],
         placeSharesBp: [7000, 3000],
         config: { ...DEFAULT_TOURNAMENT_CONFIG, ...body.config },
       },
     });
+    if (body.clubIds?.length) {
+      await prisma.tournamentClub.createMany({
+        data: body.clubIds.map((clubId) => ({ tournamentId: created.id, clubId })),
+      });
+    }
     await audit(actor.id, 'TOURNAMENT_CREATE', 'Tournament', created.id, null, created);
     return { tournament: created, message: ru.championshipCreated };
   });
@@ -279,9 +376,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         endsAt: body.endsAt === undefined ? before.endsAt : body.endsAt ? new Date(body.endsAt) : null,
         finalsAt: body.finalsAt === undefined ? before.finalsAt : body.finalsAt ? new Date(body.finalsAt) : null,
         finalsNote: body.finalsNote === undefined ? before.finalsNote : body.finalsNote,
+        conditions: body.conditions === undefined ? before.conditions : body.conditions,
+        prizeEnabled: body.prizeEnabled === undefined ? before.prizeEnabled : body.prizeEnabled,
         config,
       },
     });
+    if (body.clubIds) {
+      await prisma.tournamentClub.deleteMany({ where: { tournamentId: id } });
+      if (body.clubIds.length) {
+        await prisma.tournamentClub.createMany({
+          data: body.clubIds.map((clubId) => ({ tournamentId: id, clubId })),
+        });
+      }
+    }
     await audit(actor.id, 'TOURNAMENT_UPDATE', 'Tournament', id, before, updated);
     return { tournament: updated, message: ru.championshipSaved };
   });

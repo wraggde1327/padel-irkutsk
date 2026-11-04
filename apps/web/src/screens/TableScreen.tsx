@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
 import { PageHeader } from '../PageHeader';
-import { api } from '../api';
+import { api, rememberedTournament } from '../api';
 import { IconTable } from '../icons';
 import { ru } from '../i18n/ru';
 
@@ -19,14 +20,17 @@ type Row = {
 };
 
 export function TableScreen() {
+  const { id } = useParams<{ id: string }>();
+  const tournamentId = id || rememberedTournament();
+  const q = tournamentId ? `?tournamentId=${tournamentId}` : '';
   const { data } = useQuery({
-    queryKey: ['standings'],
-    queryFn: () => api<{ rows: Row[] }>('/api/v1/standings'),
+    queryKey: ['standings', tournamentId],
+    queryFn: () => api<{ rows: Row[] }>(`/api/v1/standings${q}`),
   });
   const rows = data?.rows ?? [];
   return (
     <div className="page">
-      <PageHeader title={ru.table.title} />
+      <PageHeader title={ru.table.title} backTo={tournamentId ? `/t/${tournamentId}` : '/'} />
       {rows.length === 0 && (
         <section className="card empty">
           <IconTable />

@@ -22,6 +22,9 @@ type Tournament = {
   endsAt: string | null;
   finalsAt: string | null;
   finalsNote: string | null;
+  conditions: string | null;
+  prizeEnabled: boolean;
+  clubIds?: string[];
 };
 
 type Club = { id: string; name: string; address: string | null };
@@ -194,12 +197,14 @@ function Championships() {
   const { data } = useTournaments();
   const { select } = useSelectedId(data);
   const [title, setTitle] = useState('');
+  const [conditions, setConditions] = useState('');
   const create = useMutation({
     mutationFn: () =>
       api<{ tournament: Tournament }>('/api/v1/admin/tournaments', {
         method: 'POST',
         body: JSON.stringify({
           title: title.trim() || 'Новый чемпионат',
+          conditions: conditions.trim() || null,
           feePairKopecks: 400000,
           feeSoloKopecks: 200000,
           status: 'DRAFT',
@@ -209,6 +214,7 @@ function Championships() {
       select(result.tournament.id);
       void query.invalidateQueries({ queryKey: ['admin-tours'] });
       setTitle('');
+      setConditions('');
     },
   });
   return (
@@ -231,6 +237,10 @@ function Championships() {
         </section>
       ))}
       <input className="field" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={ru.admin.titleField} aria-label={ru.admin.titleField} />
+      <label className="field-label">
+        {ru.admin.conditions}
+        <textarea className="field area" value={conditions} onChange={(e) => setConditions(e.target.value)} placeholder={ru.admin.conditionsHint} />
+      </label>
       <button type="button" className="btn primary" onClick={() => create.mutate()}>
         {ru.admin.create}
       </button>
@@ -263,6 +273,9 @@ function Settings() {
           endsAt: view.endsAt,
           finalsAt: view.finalsAt,
           finalsNote: view.finalsNote,
+          conditions: view.conditions,
+          prizeEnabled: view.prizeEnabled,
+          clubIds: view.clubIds ?? [],
         }),
       });
     },
@@ -285,6 +298,21 @@ function Settings() {
         {ru.admin.titleField}
         <input className="field" value={view.title} onChange={(e) => set({ title: e.target.value })} />
       </label>
+      <label className="field-label">
+        {ru.admin.conditions}
+        <textarea className="field area" value={view.conditions ?? ''} onChange={(e) => set({ conditions: e.target.value || null })} />
+        <span>{ru.admin.conditionsHint}</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={Boolean(view.prizeEnabled)} onChange={(e) => set({ prizeEnabled: e.target.checked })} />
+        {ru.admin.prizeEnabled}
+      </label>
+      <VenuePicker selected={view.clubIds ?? []} onChange={(clubIds) => set({ clubIds })} />
+      <button type="button" className="btn primary" onClick={() => save.mutate()}>
+        {ru.admin.save}
+      </button>
+      {saved && <div className="status ok">Сохранено</div>}
+      {save.isError && <div className="status wait">{(save.error as Error).message}</div>}
       <label className="field-label">
         {ru.admin.status}
         <select className="field" value={view.status} onChange={(e) => set({ status: e.target.value })}>
@@ -326,6 +354,31 @@ function Settings() {
       {saved && <div className="status ok">Сохранено</div>}
       {save.isError && <div className="status wait">{(save.error as Error).message}</div>}
     </div>
+  );
+}
+
+function VenuePicker({ selected, onChange }: { selected: string[]; onChange: (ids: string[]) => void }) {
+  const { data } = useQuery({ queryKey: ['admin-clubs'], queryFn: () => api<Club[]>('/api/v1/admin/clubs') });
+  const clubs = data ?? [];
+  return (
+    <section className="card">
+      <div className="label">{ru.admin.venuesOf}</div>
+      <p className="hint">{ru.admin.venuesHint}</p>
+      {clubs.length === 0 && <p className="hint">{ru.admin.clubs}: —</p>}
+      {clubs.map((club) => {
+        const on = selected.includes(club.id);
+        return (
+          <label key={club.id} className="check">
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={() => onChange(on ? selected.filter((id) => id !== club.id) : [...selected, club.id])}
+            />
+            {club.name}
+          </label>
+        );
+      })}
+    </section>
   );
 }
 

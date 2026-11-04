@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { PageHeader } from '../PageHeader';
-import { api } from '../api';
+import { api, rememberedTournament } from '../api';
 import { IconBracket } from '../icons';
 import { ru } from '../i18n/ru';
 import { MatchCard, type MatchDto } from './MatchesScreen';
@@ -14,16 +15,19 @@ type DivisionBracket = {
 };
 
 export function BracketScreen() {
+  const { id } = useParams<{ id: string }>();
+  const tournamentId = id || rememberedTournament();
+  const q = tournamentId ? `?tournamentId=${tournamentId}` : '';
   const { data } = useQuery({
-    queryKey: ['bracket'],
-    queryFn: () => api<{ divisions: DivisionBracket[] }>('/api/v1/bracket'),
+    queryKey: ['bracket', tournamentId],
+    queryFn: () => api<{ divisions: DivisionBracket[] }>(`/api/v1/bracket${q}`),
   });
   const divisions = data?.divisions ?? [];
   const [active, setActive] = useState(0);
   const current = divisions[active] ?? divisions[0];
   return (
     <div className="page">
-      <PageHeader title={ru.bracket.title} />
+      <PageHeader title={ru.bracket.title} backTo={tournamentId ? `/t/${tournamentId}` : '/'} />
       {divisions.length === 0 && (
         <section className="card empty">
           <IconBracket />

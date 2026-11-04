@@ -70,6 +70,15 @@ export function verifyTelegramInitData(initData: string, nowSec = Math.floor(Dat
   return result.value;
 }
 
+export async function optionalUser(request: FastifyRequest): Promise<User | null> {
+  try {
+    await request.jwtVerify();
+  } catch {
+    return null;
+  }
+  return prisma.user.findUnique({ where: { id: request.user.sub } });
+}
+
 export async function requireUser(request: FastifyRequest): Promise<User> {
   try {
     await request.jwtVerify();

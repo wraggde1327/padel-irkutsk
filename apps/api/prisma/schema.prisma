@@ -138,7 +138,18 @@ model Club {
 
   matches     Match[]
   sponsors    Sponsor[]
-  tournaments Tournament[] @relation("FinalsClub")
+  tournaments Tournament[]     @relation("FinalsClub")
+  venues      TournamentClub[]
+}
+
+model TournamentClub {
+  tournamentId String
+  clubId       String
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  club       Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@id([tournamentId, clubId])
 }
 
 // ---------- Турнир ----------
@@ -163,11 +174,13 @@ model Tournament {
   finalsClubId         String?
   finalsNote           String?
   finalsVideoUrl       String?
+  conditions           String? // условия турнира, текст админа
+  prizeEnabled         Boolean          @default(false)
   config               Json // TournamentConfig, см. §8.0
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
-  finalsClub Club?      @relation("FinalsClub", fields: [finalsClubId], references: [id])
+  finalsClub Club?            @relation("FinalsClub", fields: [finalsClubId], references: [id])
   entries    Entry[]
   rounds     Round[]
   divisions  Division[]
@@ -175,6 +188,7 @@ model Tournament {
   matches    Match[]
   sponsors   Sponsor[]
   payouts    Payout[]
+  venues     TournamentClub[]
 }
 
 model Division {

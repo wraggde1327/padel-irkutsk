@@ -23,6 +23,9 @@
   "endsAt": "2026-11-30T08:23:00.000Z",
   "finalsAt": "2026-11-28T08:23:00.000Z",
   "finalsNote": null,
+  "conditions": "Играем по правилам падела. Срок на матч — до дедлайна тура. Результат подтверждает соперник.",
+  "prizeEnabled": false,
+  "joined": false,
   "config": {
     "qualRounds": 2,
     "qualRoundDays": 7,
@@ -79,77 +82,6 @@
       672000
     ]
   },
-  "clubs": [
-    {
-      "id": "seed-club-1",
-      "name": "Клуб 1",
-      "address": "Адрес уточнит администратор",
-      "mapUrl": null,
-      "phone": null,
-      "logoUrl": null,
-      "sortOrder": 1,
-      "isActive": true,
-      "createdAt": "2026-11-03T07:26:36.897Z"
-    },
-    {
-      "id": "seed-club-2",
-      "name": "Клуб 2",
-      "address": "Адрес уточнит администратор",
-      "mapUrl": null,
-      "phone": null,
-      "logoUrl": null,
-      "sortOrder": 2,
-      "isActive": true,
-      "createdAt": "2026-11-03T07:26:36.897Z"
-    },
-    {
-      "id": "seed-club-3",
-      "name": "Клуб 3",
-      "address": "Адрес уточнит администратор",
-      "mapUrl": null,
-      "phone": null,
-      "logoUrl": null,
-      "sortOrder": 3,
-      "isActive": true,
-      "createdAt": "2026-11-03T07:26:36.897Z"
-    }
-  ],
-  "sponsors": [
-    {
-      "id": "cmw0d6smr0001jswvn2c6spbg",
-      "tournamentId": "cmw0d6smn0000jswvp027yuwv",
-      "clubId": null,
-      "kind": "LOGO",
-      "name": "Партнёр 1",
-      "logoUrl": null,
-      "linkUrl": null,
-      "description": null,
-      "sortOrder": 1,
-      "isActive": true
-    },
-    {
-      "id": "cmw0d6smr0002jswvjkhalzme",
-      "tournamentId": "cmw0d6smn0000jswvp027yuwv",
-      "clubId": null,
-      "kind": "LOGO",
-      "name": "Партнёр 2",
-      "logoUrl": null,
-      "linkUrl": null,
-      "description": null,
-      "sortOrder": 2,
-      "isActive": true
-    },
-    {
-      "id": "cmw0d6smr0003jswvffzcg905",
-      "tournamentId": "cmw0d6smn0000jswvp027yuwv",
-      "clubId": "seed-club-1",
-      "kind": "CLUB_DISCOUNT",
-      "name": "Партнёр 3",
-      "logoUrl": null,
-      "linkUrl": null,
-      "description": "Скидку вносит администратор",
-      "sortOrder": 3,
-      "isActive": true
-    }
-  ]
+  "clubs": [],
+  "sponsors": []
 }

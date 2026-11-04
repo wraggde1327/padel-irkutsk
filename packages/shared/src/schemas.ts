@@ -52,7 +52,15 @@ export const tournamentWriteSchema = z.object({
   endsAt: z.string().datetime().nullable().optional(),
   finalsAt: z.string().datetime().nullable().optional(),
   finalsNote: z.string().max(500).nullable().optional(),
+  conditions: z.string().max(4000).nullable().optional(),
+  prizeEnabled: z.boolean().optional(),
+  clubIds: z.array(z.string()).optional(),
   config: tournamentConfigSchema.partial().optional(),
+});
+
+export const entryWriteSchema = z.object({
+  type: z.enum(['PAIR', 'SOLO']),
+  rating: z.number().min(1).max(7).optional(),
 });
 
 export const clubWriteSchema = z.object({
