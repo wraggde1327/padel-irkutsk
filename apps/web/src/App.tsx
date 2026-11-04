@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api, getToken, type PublicUser, type TournamentDto } from './api';
 import { ru } from './i18n/ru';
@@ -60,9 +60,30 @@ function AdminGate() {
 function PlayerShell() {
   const location = useLocation();
   const hideTabs = location.pathname === '/register';
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [barHidden, setBarHidden] = useState(false);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    let last = el.scrollTop;
+    let stopTimer = 0;
+    const onScroll = () => {
+      const y = el.scrollTop;
+      if (y > last + 10 && y > 24) setBarHidden(true);
+      else if (y < last - 4) setBarHidden(false);
+      last = y;
+      window.clearTimeout(stopTimer);
+      stopTimer = window.setTimeout(() => setBarHidden(false), 350);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      window.clearTimeout(stopTimer);
+    };
+  }, [location.pathname]);
   return (
     <div className="shell" style={safeAreaStyle()}>
-      <div className="shell-body">
+      <div className="shell-body" ref={bodyRef}>
         <Routes>
           <Route path="/" element={<HomeScreen />} />
           <Route path="/register" element={<RegisterScreen />} />
@@ -73,7 +94,7 @@ function PlayerShell() {
         </Routes>
       </div>
       {!hideTabs && (
-        <nav className="tabbar" aria-label="Разделы">
+        <nav className={'tabbar' + (barHidden ? ' is-hidden' : '')} aria-label="Разделы">
           {TABS.map((tab) => {
             const on = location.pathname === tab.to;
             return (

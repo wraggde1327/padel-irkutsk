@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { PageHeader } from '../PageHeader';
 import { api } from '../api';
 import { IconTable } from '../icons';
 import { ru } from '../i18n/ru';
@@ -26,35 +26,35 @@ export function TableScreen() {
   const rows = data?.rows ?? [];
   return (
     <div className="page">
-      <div className="title">{ru.table.title}</div>
+      <PageHeader title={ru.table.title} />
       {rows.length === 0 && (
         <section className="card empty">
           <IconTable />
           <p className="hint">{ru.table.empty}</p>
-          <Link to="/" className="btn secondary">
-            {ru.matches.toHome}
-          </Link>
         </section>
+      )}
+      {rows.length > 0 && (
+        <div className="table-legend">
+          <span className="rank" />
+          <span className="table-who" />
+          <div className="table-stats head">
+            <span>{ru.table.w}</span>
+            <span>{ru.table.d}</span>
+            <span>{ru.table.l}</span>
+          </div>
+        </div>
       )}
       {rows.map((row) => (
         <section className="card table-row" key={row.label + String(row.rank)}>
           <b className="rank">{row.rank ?? '—'}</b>
-          <div>
+          <div className="table-who">
             <div className="big">{row.label}</div>
-            <div className="hint">
-              {row.type === 'SOLO' ? 'одиночка' : 'пара'} · {row.played} игр
-            </div>
+            <div className="hint">{row.type === 'SOLO' ? 'одиночка' : 'пара'}</div>
           </div>
           <div className="table-stats">
-            <span>
-              {ru.table.w} {row.wins}
-            </span>
-            <span>
-              {ru.table.l} {row.losses}
-            </span>
-            <span>
-              {row.setsWon}:{row.setsLost}
-            </span>
+            <span>{row.wins}</span>
+            <span>0</span>
+            <span>{row.losses}</span>
           </div>
         </section>
       ))}

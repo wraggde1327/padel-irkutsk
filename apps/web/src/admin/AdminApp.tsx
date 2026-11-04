@@ -161,12 +161,12 @@ function Overview() {
         <section className="card">
           <div className="label">{ru.admin.sandbox}</div>
           <p className="hint">{ru.admin.fillHint}</p>
-          <button type="button" className="btn secondary" disabled={busy || !current} onClick={() => fill.mutate()}>
-            {ru.admin.fillRandom}
+          <button type="button" className={'btn secondary' + (fill.isPending ? ' is-busy' : '')} disabled={busy || !current} onClick={() => fill.mutate()}>
+            {fill.isPending ? ru.admin.sandboxWait : ru.admin.fillRandom}
           </button>
           <p className="hint">{ru.admin.playHint}</p>
-          <button type="button" className="btn primary" disabled={busy || !current} onClick={() => play.mutate()}>
-            {busy ? ru.admin.sandboxWait : ru.admin.playRandom}
+          <button type="button" className={'btn primary' + (play.isPending ? ' is-busy' : '')} disabled={busy || !current} onClick={() => play.mutate()}>
+            {play.isPending ? ru.admin.sandboxWait : ru.admin.playRandom}
           </button>
           {(message || fill.isError || play.isError) && (
             <div className={'status ' + (fill.isError || play.isError ? 'wait' : 'ok')}>

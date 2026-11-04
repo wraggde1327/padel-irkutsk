@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { PageHeader } from '../PageHeader';
 import { api } from '../api';
 import { IconMatches } from '../icons';
 import { ru } from '../i18n/ru';
@@ -13,8 +13,9 @@ export type MatchDto = {
   status: string;
   score: string;
   winner: 'A' | 'B' | null;
-  sideA: { id: string; label: string };
-  sideB: { id: string; label: string } | null;
+  sets: Array<{ gamesA: number; gamesB: number }>;
+  sideA: { id: string; label: string; names?: string[] };
+  sideB: { id: string; label: string; names?: string[] } | null;
 };
 
 export function MatchesScreen() {
@@ -25,15 +26,12 @@ export function MatchesScreen() {
   const matches = data?.matches ?? [];
   return (
     <div className="page">
-      <div className="title">{ru.matches.title}</div>
+      <PageHeader title={ru.matches.title} />
       {matches.length === 0 && (
         <section className="card empty">
           <IconMatches />
           <p className="hint">{ru.matches.empty}</p>
           <p className="hint">{ru.matches.draftHidden}</p>
-          <Link to="/" className="btn secondary">
-            {ru.matches.toHome}
-          </Link>
         </section>
       )}
       {matches.map((match) => (
@@ -43,25 +41,52 @@ export function MatchesScreen() {
   );
 }
 
+function namesOf(side: { label: string; names?: string[] } | null): string[] {
+  if (!side) return [ru.matches.bye];
+  if (side.names && side.names.length > 0) return side.names;
+  return side.label.split(/\s*[+/]\s*/).filter(Boolean);
+}
+
 export function MatchCard({ match }: { match: MatchDto }) {
+  const left = namesOf(match.sideA);
+  const right = namesOf(match.sideB);
+  const sets = match.sets?.length
+    ? match.sets
+    : match.score
+      ? match.score.split(/\s+/).map((part) => {
+          const [a, b] = part.split(/[-:]/).map(Number);
+          return { gamesA: a || 0, gamesB: b || 0 };
+        })
+      : [];
   return (
-    <section className="card match-card">
+    <section className={'card match-card' + (match.winner === 'A' ? ' win-a' : match.winner === 'B' ? ' win-b' : '')}>
       <div className="hint">
         {match.title}
         {match.division ? ` · ${match.division}` : ''}
       </div>
-      {match.isBye ? (
-        <>
-          <div className="match-side is-win">{match.sideA.label}</div>
-          <div className="match-score">{ru.matches.bye}</div>
-        </>
-      ) : (
-        <>
-          <div className={'match-side' + (match.winner === 'A' ? ' is-win' : '')}>{match.sideA.label}</div>
-          <div className="match-score">{match.score || '—'}</div>
-          <div className={'match-side' + (match.winner === 'B' ? ' is-win' : '')}>{match.sideB?.label ?? ru.matches.bye}</div>
-        </>
-      )}
+      <div className="match-grid">
+        <div className={'match-names is-a' + (match.winner === 'A' ? ' is-win' : '')}>
+          {left.map((name) => (
+            <div key={name}>{name}</div>
+          ))}
+        </div>
+        <div className="match-sets">
+          {match.isBye ? (
+            <div>{ru.matches.bye}</div>
+          ) : (
+            sets.map((set, i) => (
+              <div key={i}>
+                {set.gamesA}–{set.gamesB}
+              </div>
+            ))
+          )}
+        </div>
+        <div className={'match-names is-b' + (match.winner === 'B' ? ' is-win' : '')}>
+          {right.map((name) => (
+            <div key={name}>{name}</div>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }

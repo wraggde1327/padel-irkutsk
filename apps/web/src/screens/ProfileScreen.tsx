@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useMe } from '../App';
+import { PageHeader } from '../PageHeader';
 import { api, setToken, type PublicUser } from '../api';
 import { ru } from '../i18n/ru';
 
@@ -9,7 +10,7 @@ export function ProfileScreen() {
   const user = me.data?.user;
   return (
     <div className="page">
-      <div className="title">{ru.profile.title}</div>
+      <PageHeader title={ru.profile.title} />
       <section className="card profile">
         <div className="avatar">{(user?.firstName ?? ru.profile.guest)[0]}</div>
         <div>

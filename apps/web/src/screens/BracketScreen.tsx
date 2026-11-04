@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { PageHeader } from '../PageHeader';
 import { api } from '../api';
 import { IconBracket } from '../icons';
 import { ru } from '../i18n/ru';
@@ -23,14 +23,11 @@ export function BracketScreen() {
   const current = divisions[active] ?? divisions[0];
   return (
     <div className="page">
-      <div className="title">{ru.bracket.title}</div>
+      <PageHeader title={ru.bracket.title} />
       {divisions.length === 0 && (
         <section className="card empty">
           <IconBracket />
           <p className="hint">{ru.bracket.empty}</p>
-          <Link to="/" className="btn secondary">
-            {ru.matches.toHome}
-          </Link>
         </section>
       )}
       {divisions.length > 1 && (
