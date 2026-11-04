@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useMe } from '../App';
 import { PageHeader } from '../PageHeader';
-import { api, setToken, type PublicUser } from '../api';
+import { api, isStaticDemo, setToken, type PublicUser } from '../api';
 import { ru } from '../i18n/ru';
 
 export function ProfileScreen() {
@@ -32,12 +32,13 @@ export function ProfileScreen() {
           <div className="status wait">{ru.profile.pending}</div>
         </section>
       )}
+      {isStaticDemo && <p className="hint">{ru.home.demoBanner}</p>}
       {me.data?.isStaff && (
         <Link to="/admin" className="btn primary">
           {ru.profile.adminLink}
         </Link>
       )}
-      <DevLogin loggedIn={Boolean(user)} />
+      {!isStaticDemo && <DevLogin loggedIn={Boolean(user)} />}
     </div>
   );
 }

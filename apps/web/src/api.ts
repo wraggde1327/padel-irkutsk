@@ -1,5 +1,19 @@
 const TOKEN_KEY = 'padel.jwt';
 
+export const isStaticDemo = import.meta.env.VITE_STATIC_DEMO === '1';
+
+const DEMO_GET: Record<string, string> = {
+  '/api/v1/tournament': 'tournament.json',
+  '/api/v1/matches': 'matches.json',
+  '/api/v1/standings': 'standings.json',
+  '/api/v1/bracket': 'bracket.json',
+};
+
+function demoAsset(file: string): string {
+  const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  return `${base}demo-api/${file}`;
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -10,6 +24,17 @@ export function setToken(token: string | null): void {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (isStaticDemo) {
+    const method = (init.method ?? 'GET').toUpperCase();
+    const key = path.split('?')[0];
+    const file = DEMO_GET[key];
+    if (method !== 'GET' || !file) {
+      throw new Error('Это публичное демо: запись и вход отключены. Полный запуск — у себя или в Telegram.');
+    }
+    const response = await fetch(demoAsset(file));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return (await response.json()) as T;
+  }
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');

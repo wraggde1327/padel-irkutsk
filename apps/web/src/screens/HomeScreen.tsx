@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTournament } from '../App';
+import { isStaticDemo } from '../api';
 import { formatDate, moneyFromKopecks } from '../format';
 import { ru } from '../i18n/ru';
 
@@ -19,6 +20,7 @@ export function HomeScreen() {
   return (
     <div className="page">
       <div className="title">{data.title}</div>
+      {isStaticDemo && <p className="status wait">{ru.home.demoBanner}</p>}
       <div className="chip">{statusLabel(data.status, data.startsAt)}</div>
       <Link to="/register" className="btn primary">
         {ru.home.participate} · {moneyFromKopecks(data.feePairKopecks)} с пары
