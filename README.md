@@ -24,8 +24,9 @@ Telegram Mini App для месячного падел-турнира на тр�
 
 1. Нажмите **Create repo** в Cursor — появится публичный GitHub-репозиторий с этим кодом.
 2. После пуша в `main` GitHub Actions сам соберёт приложение и выложит на Pages.
-3. Ссылка будет вида `https://<ваш-ник>.github.io/<имя-репо>/`.
-4. Если страница 404 — в репозитории: **Settings → Pages → Source: GitHub Actions**.
+3. Постоянная ссылка: https://wraggde1327.github.io/padel-irkutsk/
+4. Репозиторий: https://github.com/wraggde1327/padel-irkutsk
+5. Если страница 404 — в репозитории: **Settings → Pages → Source: GitHub Actions**.
 
 Это демо для просмотра (главная, матчи, таблица, сетка). Запись и админка на Pages отключены.
 
