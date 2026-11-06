@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../PageHeader';
+import { useMe } from '../App';
 import { api, getToken, isStaticDemo, rememberTournament, type TournamentCard } from '../api';
 import { moneyFromKopecks, statusLabel } from '../format';
 import { ru } from '../i18n/ru';
@@ -13,6 +14,7 @@ export function useTournamentLists() {
 }
 
 export function HomeScreen() {
+  const me = useMe();
   const { data, isLoading, isError, refetch } = useTournamentLists();
   if (isLoading) return <div className="page-msg">{ru.home.loading}</div>;
   if (isError || !data) {
@@ -25,11 +27,17 @@ export function HomeScreen() {
       </div>
     );
   }
+  const loggedIn = Boolean(getToken() && me.data?.user);
   return (
     <div className="page">
       <div className="title">{ru.appTitle}</div>
       {isStaticDemo && <p className="status wait">{ru.home.demoBanner}</p>}
-      <Link to="/tournaments" className="btn primary">
+      {!loggedIn && (
+        <Link to="/profile" className="btn primary">
+          {ru.auth.title}
+        </Link>
+      )}
+      <Link to="/tournaments" className={loggedIn ? 'btn primary' : 'btn secondary'}>
         {ru.home.tournaments}
       </Link>
       <section className="card">
@@ -39,9 +47,16 @@ export function HomeScreen() {
           <TournamentRow key={item.id} item={item} action={ru.home.open} />
         ))}
       </section>
-      <Link to="/profile" className="btn secondary">
-        {ru.home.openProfile}
-      </Link>
+      {loggedIn && me.data?.user.needsProfile && (
+        <Link to="/profile" className="btn secondary">
+          {ru.auth.completeTitle}
+        </Link>
+      )}
+      {!loggedIn && (
+        <Link to="/profile" className="btn secondary">
+          {ru.home.openProfile}
+        </Link>
+      )}
     </div>
   );
 }

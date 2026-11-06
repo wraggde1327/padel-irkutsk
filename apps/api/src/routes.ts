@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  authCodeRequestSchema,
+  authCodeVerifySchema,
   authDevBodySchema,
+  authGuestBodySchema,
   authTelegramBodySchema,
   clubWriteSchema,
   DEFAULT_TOURNAMENT_CONFIG,
@@ -8,11 +11,13 @@ import {
   entryWriteSchema,
   generateQualDraw,
   parseTournamentConfig,
+  profileUpdateSchema,
   sponsorWriteSchema,
   staffGrantBodySchema,
   tournamentWriteSchema,
 } from '@padel/shared';
-import { optionalUser, requireOwner, requireStaff, requireUser, signUser, upsertFromTelegram, verifyTelegramInitData } from './auth';
+import { optionalUser, publicUser, requireOwner, requireStaff, requireUser, signUser, upsertFromTelegram, verifyTelegramInitData } from './auth';
+import { createGuestUser, issueAuthCode, needsProfile, verifyAuthCode } from './authCodes';
 import { env } from './env';
 import { fail } from './errors';
 import { ru } from './i18n/ru';
@@ -97,7 +102,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       telegramId: BigInt(body.telegramId),
       firstName: body.firstName,
     });
-    return { token: signUser(reply, user), user: publicUser(user) };
+    const complete = await prisma.user.update({
+      where: { id: user.id },
+      data: { profileComplete: true, lastName: user.lastName ?? 'Тест' },
+    });
+    return { token: signUser(reply, complete), user: publicUser(complete) };
+  });
+
+  app.post('/api/v1/auth/code/request', async (request) => {
+    const body = authCodeRequestSchema.parse(request.body);
+    return issueAuthCode(body.channel, body.target);
+  });
+
+  app.post('/api/v1/auth/code/verify', async (request, reply) => {
+    const body = authCodeVerifySchema.parse(request.body);
+    const user = await verifyAuthCode(body.channel, body.target, body.code);
+    return {
+      token: signUser(reply, user),
+      user: publicUser(user),
+      needsProfile: needsProfile(user),
+    };
+  });
+
+  app.post('/api/v1/auth/guest', async (request, reply) => {
+    if (!env.allowDevLogin) fail(403, 'DEV_OFF', ru.devLoginOff);
+    const body = authGuestBodySchema.parse(request.body ?? {});
+    const user = await createGuestUser(body.firstName ?? 'Гость');
+    return { token: signUser(reply, user), user: publicUser(user), needsProfile: false };
   });
 
   app.get('/api/v1/me', async (request) => {
@@ -111,7 +142,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           },
         })
       : null;
-    return { user: publicUser(user), entry, isStaff: user.role === 'ADMIN' || user.role === 'OWNER', sandbox: env.allowDevLogin };
+    return {
+      user: publicUser(user),
+      entry,
+      isStaff: user.role === 'ADMIN' || user.role === 'OWNER',
+      sandbox: env.allowDevLogin,
+      needsProfile: needsProfile(user),
+      botUsername: env.botUsername,
+    };
+  });
+
+  app.put('/api/v1/me/profile', async (request, reply) => {
+    const user = await requireUser(request);
+    const body = profileUpdateSchema.parse(request.body);
+    const phone = body.phone.replace(/\D/g, '');
+    let digits = phone;
+    if (digits.length === 11 && digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+    if (digits.length === 10) digits = `7${digits}`;
+    const normalized = `+${digits}`;
+    const clash = await prisma.user.findFirst({
+      where: { phone: normalized, NOT: { id: user.id } },
+    });
+    if (clash) fail(409, 'PHONE_TAKEN', 'Этот телефон уже привязан к другому аккаунту');
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        firstName: body.firstName.trim(),
+        lastName: body.lastName.trim(),
+        phone: normalized,
+        profileComplete: true,
+      },
+    });
+    return { user: publicUser(updated), token: signUser(reply, updated) };
   });
 
   app.get('/api/v1/tournaments', async (request) => {
@@ -154,6 +216,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/v1/tournaments/:id/entries', async (request) => {
     const user = await requireUser(request);
+    if (needsProfile(user)) fail(409, 'PROFILE', 'Сначала укажите имя, фамилию и телефон в профиле');
     const { id } = request.params as { id: string };
     const body = entryWriteSchema.parse(request.body);
     const tournament = await prisma.tournament.findUnique({ where: { id } });
@@ -524,19 +587,4 @@ async function audit(actorId: string, action: string, entityType: string, entity
       after: after as object,
     },
   });
-}
-
-function publicUser(user: { id: string; telegramId: bigint; firstName: string; lastName: string | null; username: string | null; photoUrl: string | null; role: string; lundaRating: unknown; lundaStatus: string; internalRating: number }) {
-  return {
-    id: user.id,
-    telegramId: user.telegramId.toString(),
-    firstName: user.firstName,
-    lastName: user.lastName,
-    username: user.username,
-    photoUrl: user.photoUrl,
-    role: user.role,
-    lundaRating: user.lundaRating,
-    lundaStatus: user.lundaStatus,
-    internalRating: user.internalRating,
-  };
 }

@@ -139,6 +139,7 @@ a { text-decoration: none; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; }
 .tour-row { display: flex; flex-direction: column; gap: 10px; }
 .hint.keep { white-space: pre-wrap; color: var(--tg-theme-text-color); font-size: 15px; }
+.auth-panel { gap: 10px; }
 .field-label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--tg-theme-hint-color); }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .match-card { gap: 10px; }

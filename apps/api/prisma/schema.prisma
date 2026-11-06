@@ -15,6 +15,13 @@ enum Role {
   OWNER
 }
 
+enum AuthChannel {
+  TELEGRAM
+  PHONE
+  EMAIL
+  GUEST
+}
+
 enum TournamentStatus {
   DRAFT
   REGISTRATION
@@ -100,12 +107,16 @@ enum SponsorKind {
 
 model User {
   id              String       @id @default(cuid())
-  telegramId      BigInt       @unique
+  telegramId      BigInt?      @unique
   username        String?
   firstName       String
   lastName        String?
+  phone           String?      @unique
+  email           String?      @unique
   photoUrl        String?
   languageCode    String?
+  authChannel     AuthChannel  @default(TELEGRAM)
+  profileComplete Boolean      @default(false)
   role            Role         @default(PLAYER)
   canMessage      Boolean      @default(false) // бот может писать пользователю
   lundaRating     Decimal?     @db.Decimal(2, 1) // указан игроком, шкала 1.0–7.0
@@ -123,6 +134,20 @@ model User {
   notifications    Notification[]
   submittedMatches Match[]         @relation("MatchSubmitter")
   confirmedMatches Match[]         @relation("MatchConfirmer")
+}
+
+// Одноразовый код входа: Telegram / SMS / email
+model AuthCode {
+  id         String      @id @default(cuid())
+  channel    AuthChannel
+  target     String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int         @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime    @default(now())
+
+  @@index([channel, target, createdAt])
 }
 
 model Club {

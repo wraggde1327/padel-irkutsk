@@ -8,7 +8,7 @@ import { prisma } from './prisma';
 
 export type JwtUser = {
   sub: string;
-  telegramId: string;
+  telegramId: string | null;
   role: Role;
 };
 
@@ -37,9 +37,29 @@ export async function upsertFromTelegram(input: {
   canMessage?: boolean;
 }): Promise<User> {
   const role = await resolveRole(input.telegramId);
-  return prisma.user.upsert({
-    where: { telegramId: input.telegramId },
-    create: {
+  const existing = await prisma.user.findUnique({ where: { telegramId: input.telegramId } });
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        username: input.username ?? existing.username,
+        photoUrl: input.photoUrl ?? existing.photoUrl,
+        languageCode: input.languageCode ?? existing.languageCode,
+        canMessage: input.canMessage ?? existing.canMessage,
+        role,
+        authChannel: 'TELEGRAM',
+        // Имя из Telegram подтягиваем только пока профиль не заполнен вручную
+        ...(existing.profileComplete
+          ? {}
+          : {
+              firstName: input.firstName || existing.firstName,
+              lastName: input.lastName ?? existing.lastName,
+            }),
+      },
+    });
+  }
+  return prisma.user.create({
+    data: {
       telegramId: input.telegramId,
       firstName: input.firstName,
       lastName: input.lastName,
@@ -48,14 +68,8 @@ export async function upsertFromTelegram(input: {
       languageCode: input.languageCode,
       canMessage: input.canMessage ?? false,
       role,
-    },
-    update: {
-      firstName: input.firstName,
-      lastName: input.lastName,
-      username: input.username,
-      photoUrl: input.photoUrl,
-      languageCode: input.languageCode,
-      role,
+      authChannel: 'TELEGRAM',
+      profileComplete: false,
     },
   });
 }
@@ -104,7 +118,44 @@ export async function requireOwner(request: FastifyRequest): Promise<User> {
 
 export function signUser(reply: FastifyReply, user: User): string {
   return reply.server.jwt.sign(
-    { sub: user.id, telegramId: user.telegramId.toString(), role: user.role },
+    { sub: user.id, telegramId: user.telegramId?.toString() ?? null, role: user.role },
     { expiresIn: '24h' },
   );
+}
+
+export function publicUser(user: {
+  id: string;
+  telegramId: bigint | null;
+  firstName: string;
+  lastName: string | null;
+  phone?: string | null;
+  email?: string | null;
+  username: string | null;
+  photoUrl: string | null;
+  role: string;
+  authChannel?: string;
+  profileComplete?: boolean;
+  lundaRating: unknown;
+  lundaStatus: string;
+  internalRating: number;
+}) {
+  const profileComplete = user.profileComplete ?? false;
+  const needsProfile = user.authChannel === 'GUEST' ? false : !profileComplete;
+  return {
+    id: user.id,
+    telegramId: user.telegramId?.toString() ?? null,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    phone: user.phone ?? null,
+    email: user.email ?? null,
+    username: user.username,
+    photoUrl: user.photoUrl,
+    role: user.role,
+    authChannel: user.authChannel ?? 'TELEGRAM',
+    profileComplete,
+    needsProfile,
+    lundaRating: user.lundaRating,
+    lundaStatus: user.lundaStatus,
+    internalRating: user.internalRating,
+  };
 }

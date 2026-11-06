@@ -26,6 +26,11 @@ export function RegisterScreen() {
     setBusy(true);
     setError('');
     try {
+      const me = await api<{ user: { needsProfile?: boolean } }>('/api/v1/me');
+      if (me.user.needsProfile) {
+        navigate('/profile');
+        return;
+      }
       await api(`/api/v1/tournaments/${id}/entries`, {
         method: 'POST',
         body: JSON.stringify({ type: mode === 'pair' ? 'PAIR' : 'SOLO', rating }),

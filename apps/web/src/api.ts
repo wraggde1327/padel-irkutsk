@@ -65,12 +65,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type PublicUser = {
   id: string;
-  telegramId: string;
+  telegramId: string | null;
   firstName: string;
   lastName: string | null;
+  phone: string | null;
+  email: string | null;
   username: string | null;
   photoUrl: string | null;
   role: 'PLAYER' | 'ADMIN' | 'OWNER';
+  authChannel: 'TELEGRAM' | 'PHONE' | 'EMAIL' | 'GUEST';
+  profileComplete: boolean;
+  needsProfile: boolean;
   lundaRating: string | number | null;
   lundaStatus: string;
   internalRating: number;

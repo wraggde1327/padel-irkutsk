@@ -18,6 +18,27 @@ export const authDevBodySchema = z.object({
   role: z.enum(['PLAYER', 'ADMIN', 'OWNER']).optional(),
 });
 
+export const authCodeRequestSchema = z.object({
+  channel: z.enum(['TELEGRAM', 'PHONE', 'EMAIL']),
+  target: z.string().min(3).max(120),
+});
+
+export const authCodeVerifySchema = z.object({
+  channel: z.enum(['TELEGRAM', 'PHONE', 'EMAIL']),
+  target: z.string().min(3).max(120),
+  code: z.string().regex(/^\d{4,8}$/),
+});
+
+export const authGuestBodySchema = z.object({
+  firstName: z.string().min(1).max(64).optional(),
+});
+
+export const profileUpdateSchema = z.object({
+  firstName: z.string().min(1).max(64),
+  lastName: z.string().min(1).max(64),
+  phone: z.string().min(8).max(32),
+});
+
 export const lundaRatingBodySchema = z.object({
   rating: z.number().min(1).max(7).multipleOf(0.1),
 });
