@@ -285,7 +285,7 @@ async function playOpenMatches(
   }
 }
 
-async function recalcStandings(tournamentId: string) {
+export async function recalcStandings(tournamentId: string) {
   const entries = await prisma.entry.findMany({ where: { tournamentId, status: 'ACTIVE' } });
   const matches = await prisma.match.findMany({
     where: { tournamentId, status: { in: ['CONFIRMED', 'BYE'] }, round: { stage: 'QUALIFICATION' } },

@@ -84,6 +84,18 @@ export const entryWriteSchema = z.object({
   rating: z.number().min(1).max(7).optional(),
 });
 
+export const matchResultWriteSchema = z.object({
+  sets: z
+    .array(
+      z.object({
+        gamesA: z.number().int().min(0).max(20),
+        gamesB: z.number().int().min(0).max(20),
+      }),
+    )
+    .min(1)
+    .max(3),
+});
+
 export const clubWriteSchema = z.object({
   name: z.string().min(1).max(80),
   address: z.string().max(200).nullable().optional(),

@@ -10,6 +10,7 @@ import {
   drawGenerateSchema,
   entryWriteSchema,
   generateQualDraw,
+  matchResultWriteSchema,
   parseTournamentConfig,
   profileUpdateSchema,
   sponsorWriteSchema,
@@ -18,6 +19,7 @@ import {
 } from '@padel/shared';
 import { optionalUser, publicUser, requireOwner, requireStaff, requireUser, signUser, upsertFromTelegram, verifyTelegramInitData } from './auth';
 import { createGuestUser, issueAuthCode, needsProfile, verifyAuthCode } from './authCodes';
+import { isPlayedStatus, submitMatchResult, userEntryIds } from './matchResults';
 import { env } from './env';
 import { fail } from './errors';
 import { ru } from './i18n/ru';
@@ -250,34 +252,84 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/v1/matches/me', async (request) => {
     const user = await requireUser(request);
-    const entries = await prisma.entry.findMany({
-      where: { OR: [{ captainId: user.id }, { partnerId: user.id }] },
-      select: { id: true },
-    });
+    const q = request.query as { tournamentId?: string };
+    const entries = await userEntryIds(user.id, q.tournamentId);
     const entryIds = entries.map((row) => row.id);
+    if (entryIds.length === 0) return { open: [], played: [], matches: [] };
     const matches = await prisma.match.findMany({
       where: {
         round: { status: 'PUBLISHED' },
-        ...(entryIds.length
-          ? { OR: [{ sideA: { entries: { some: { entryId: { in: entryIds } } } } }, { sideB: { entries: { some: { entryId: { in: entryIds } } } } }] }
-          : {}),
+        ...(q.tournamentId ? { tournamentId: q.tournamentId } : {}),
+        OR: [
+          { sideA: { entries: { some: { entryId: { in: entryIds } } } } },
+          { sideB: { entries: { some: { entryId: { in: entryIds } } } } },
+        ],
       },
       include: matchInclude,
-      orderBy: [{ round: { stage: 'asc' } }, { deadlineAt: 'asc' }],
+      orderBy: [{ deadlineAt: 'asc' }, { createdAt: 'asc' }],
     });
-    return { matches: matches.map(serializeMatch), mine: entryIds.length > 0 };
+    const serialized = matches.map((match) => ({
+      ...serializeMatch(match),
+      mine: true,
+      played: isPlayedStatus(match.status),
+      canSubmit: match.status === 'SCHEDULED' && Boolean(match.sideBId),
+    }));
+    return {
+      open: serialized.filter((row) => !row.played),
+      played: serialized.filter((row) => row.played),
+      matches: serialized,
+    };
   });
 
   app.get('/api/v1/matches', async (request) => {
     const q = request.query as { tournamentId?: string };
     const tournament = await tournamentById(q.tournamentId);
     if (!tournament) return { matches: [] };
+    const user = await optionalUser(request);
+    const myIds = user ? new Set((await userEntryIds(user.id, tournament.id)).map((row) => row.id)) : new Set<string>();
     const matches = await prisma.match.findMany({
       where: { tournamentId: tournament.id, round: { status: 'PUBLISHED' } },
       include: matchInclude,
       orderBy: [{ round: { stage: 'asc' } }, { round: { number: 'asc' } }, { createdAt: 'asc' }],
     });
-    return { matches: matches.map(serializeMatch) };
+    return {
+      matches: matches.map((match) => {
+        const entryIds = [...match.sideA.entries, ...(match.sideB?.entries ?? [])].map((row) => row.entryId);
+        const mine = entryIds.some((id) => myIds.has(id));
+        return {
+          ...serializeMatch(match),
+          mine,
+          played: isPlayedStatus(match.status),
+          canSubmit: mine && match.status === 'SCHEDULED' && Boolean(match.sideBId),
+        };
+      }),
+    };
+  });
+
+  app.get('/api/v1/matches/:id', async (request) => {
+    const user = await optionalUser(request);
+    const { id } = request.params as { id: string };
+    const match = await prisma.match.findUnique({ where: { id }, include: matchInclude });
+    if (!match) fail(404, 'NOT_FOUND', 'Матч не найден');
+    const myIds = user ? new Set((await userEntryIds(user.id, match.tournamentId)).map((row) => row.id)) : new Set<string>();
+    const entryIds = [...match.sideA.entries, ...(match.sideB?.entries ?? [])].map((row) => row.entryId);
+    const mine = entryIds.some((eid) => myIds.has(eid));
+    return {
+      match: {
+        ...serializeMatch(match),
+        mine,
+        played: isPlayedStatus(match.status),
+        canSubmit: mine && match.status === 'SCHEDULED' && Boolean(match.sideBId),
+      },
+    };
+  });
+
+  app.post('/api/v1/matches/:id/result', async (request) => {
+    const user = await requireUser(request);
+    const { id } = request.params as { id: string };
+    const body = matchResultWriteSchema.parse(request.body);
+    const match = await submitMatchResult(id, user, body.sets);
+    return { match, message: 'Счёт сохранён' };
   });
 
   app.get('/api/v1/standings', async (request) => {

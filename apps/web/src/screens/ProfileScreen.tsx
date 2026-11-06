@@ -16,6 +16,7 @@ export function ProfileScreen() {
       <div className="page">
         <PageHeader title={ru.profile.title} />
         {!isStaticDemo && <AuthPanel />}
+        {!isStaticDemo && <DevRoles />}
         {isStaticDemo && <p className="hint">{ru.home.demoBanner}</p>}
       </div>
     );
@@ -51,29 +52,31 @@ export function ProfileScreen() {
               <b>{user.phone}</b>
             </div>
           )}
-          <div className="status wait">{ru.profile.pending}</div>
         </section>
       )}
-      {isStaticDemo && <p className="hint">{ru.home.demoBanner}</p>}
       {me.data?.isStaff && (
-        <Link to="/admin" className="btn primary">
-          {ru.profile.adminLink}
-        </Link>
+        <>
+          <Link to="/admin" className="btn primary">
+            {ru.profile.adminLink}
+          </Link>
+          <Link to="/" className="btn secondary">
+            {ru.profile.openAppAsPlayer}
+          </Link>
+        </>
       )}
-      {!isStaticDemo && <DevRoles loggedIn={loggedIn} />}
-      {loggedIn && (
-        <LogoutButton />
-      )}
+      {isStaticDemo && <p className="hint">{ru.home.demoBanner}</p>}
+      {!isStaticDemo && <DevRoles current={user?.role} />}
+      {loggedIn && <LogoutButton />}
     </div>
   );
 }
 
 function roleLabel(user?: PublicUser): string {
   if (!user) return ru.profile.openTelegram;
-  if (user.role === 'OWNER') return ru.profile.owner;
-  if (user.role === 'ADMIN') return ru.profile.admin;
+  if (user.role === 'OWNER') return ru.profile.nowOwner;
+  if (user.role === 'ADMIN') return ru.profile.nowAdmin;
   if (user.authChannel === 'GUEST') return ru.auth.guest;
-  return ru.profile.player;
+  return ru.profile.nowPlaying;
 }
 
 function LogoutButton() {
@@ -92,9 +95,10 @@ function LogoutButton() {
   );
 }
 
-function DevRoles({ loggedIn }: { loggedIn: boolean }) {
+function DevRoles({ current }: { current?: PublicUser['role'] }) {
   const query = useQueryClient();
   const login = async (telegramId: string, firstName: string) => {
+    setToken(null);
     const result = await api<{ token: string }>('/api/v1/auth/dev', {
       method: 'POST',
       body: JSON.stringify({ telegramId, firstName }),
@@ -106,18 +110,27 @@ function DevRoles({ loggedIn }: { loggedIn: boolean }) {
     <section className="card">
       <div className="label">{ru.profile.loginDev}</div>
       <p className="hint">{ru.profile.switchHint}</p>
-      <div className="row">
-        <button type="button" className="btn secondary" onClick={() => void login('1001', 'Игрок')}>
-          {ru.profile.asPlayer}
-        </button>
-        <button type="button" className="btn secondary" onClick={() => void login('2002', 'Админ')}>
-          {ru.profile.asAdmin}
-        </button>
-      </div>
-      <button type="button" className="btn secondary" onClick={() => void login('9009', 'Владелец')}>
+      <button
+        type="button"
+        className={'btn' + (current === 'PLAYER' ? ' primary' : ' secondary')}
+        onClick={() => void login('1001', 'Игрок')}
+      >
+        {ru.profile.asPlayer}
+      </button>
+      <button
+        type="button"
+        className={'btn' + (current === 'ADMIN' ? ' primary' : ' secondary')}
+        onClick={() => void login('2002', 'Админ')}
+      >
+        {ru.profile.asAdmin}
+      </button>
+      <button
+        type="button"
+        className={'btn' + (current === 'OWNER' ? ' primary' : ' secondary')}
+        onClick={() => void login('9009', 'Владелец')}
+      >
         {ru.profile.asOwner}
       </button>
-      {!loggedIn && <p className="hint">{ru.auth.guestHint}</p>}
     </section>
   );
 }

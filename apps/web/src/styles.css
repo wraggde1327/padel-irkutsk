@@ -142,8 +142,24 @@ a { text-decoration: none; }
 .auth-panel { gap: 10px; }
 .field-label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--tg-theme-hint-color); }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.match-card { gap: 10px; }
+.match-card { gap: 10px; border: 1px solid var(--tg-theme-section-separator-color); }
+.match-card.is-open { background: var(--tg-theme-section-bg-color); }
+.match-card.is-played { background: var(--status-ok-bg); border-color: transparent; }
+.match-card.is-clickable { cursor: pointer; }
+.match-card.is-clickable:active { transform: scale(0.98); }
+a.match-card { color: inherit; }
 .match-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; }
+.result-page { padding-bottom: 24px; }
+.result-sides { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
+.result-pair { display: flex; flex-direction: column; gap: 4px; }
+.result-pair.is-right { text-align: right; }
+.result-vs { color: var(--tg-theme-hint-color); font-weight: 700; }
+.result-set { align-items: center; }
+.score-wheel { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 8px 0; }
+.score-col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.score-digit { font-size: 56px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; min-width: 72px; text-align: center; }
+.score-colon { font-size: 48px; font-weight: 700; padding-bottom: 8px; }
+.role-banner { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--tg-theme-secondary-bg-color); font-size: 14px; font-weight: 600; }
 .match-names { display: flex; flex-direction: column; gap: 2px; font-weight: 600; line-height: 1.25; }
 .match-names.is-a { text-align: left; }
 .match-names.is-b { text-align: right; }

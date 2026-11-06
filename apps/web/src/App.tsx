@@ -7,6 +7,7 @@ import { AdminApp } from './admin/AdminApp';
 import { IconBracket, IconHome, IconMatches, IconProfile, IconTable } from './icons';
 import { BracketScreen } from './screens/BracketScreen';
 import { HomeScreen, TournamentsScreen } from './screens/HomeScreen';
+import { MatchResultScreen } from './screens/MatchResultScreen';
 import { MatchesScreen } from './screens/MatchesScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
@@ -44,7 +45,8 @@ function AdminGate() {
 
 function PlayerShell() {
   const location = useLocation();
-  const hideTabs = /\/register$/.test(location.pathname);
+  const hideTabs = /\/register$/.test(location.pathname) || /\/matches\/[^/]+$/.test(location.pathname);
+  const me = useMe();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [barHidden, setBarHidden] = useState(false);
   useEffect(() => {
@@ -69,12 +71,22 @@ function PlayerShell() {
   return (
     <div className="shell" style={safeAreaStyle()}>
       <div className="shell-body" ref={bodyRef}>
+        {me.data?.user && (
+          <div className="role-banner">
+            {me.data.user.role === 'OWNER'
+              ? ru.profile.nowOwner
+              : me.data.user.role === 'ADMIN'
+                ? ru.profile.nowAdmin
+                : ru.profile.nowPlaying}
+          </div>
+        )}
         <Routes>
           <Route path="/" element={<HomeScreen />} />
           <Route path="/tournaments" element={<TournamentsScreen />} />
           <Route path="/t/:id" element={<TournamentScreen />} />
           <Route path="/t/:id/register" element={<RegisterScreen />} />
           <Route path="/t/:id/matches" element={<MatchesScreen />} />
+          <Route path="/t/:id/matches/:matchId" element={<MatchResultScreen />} />
           <Route path="/t/:id/table" element={<TableScreen />} />
           <Route path="/t/:id/bracket" element={<BracketScreen />} />
           <Route path="/register" element={<LegacyRegister />} />

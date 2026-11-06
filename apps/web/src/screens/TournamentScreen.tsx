@@ -44,7 +44,17 @@ export function TournamentScreen() {
         </section>
       )}
       {data.joined ? (
-        <div className="status ok">{ru.register.done}</div>
+        <>
+          <div className="status ok">{ru.register.done}</div>
+          <div className="row">
+            <Link to={`/t/${data.id}/matches`} className="btn primary">
+              {ru.home.myMatches}
+            </Link>
+            <Link to={`/t/${data.id}/table`} className="btn secondary">
+              {ru.home.table}
+            </Link>
+          </div>
+        </>
       ) : (
         <Link to={`/t/${data.id}/register`} className="btn primary">
           {ru.home.participate} · {moneyFromKopecks(data.feePairKopecks)} с пары
