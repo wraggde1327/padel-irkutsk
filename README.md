@@ -16,6 +16,7 @@ Telegram Mini App для месячного падел-турнира на тр�
 | `design/screens/` | Скриншоты светлой и тёмной темы |
 | `demo/` | Кликабельный прототип на тестовых данных (не боевой код) |
 | `apps/api/prisma/schema.prisma` | Схема БД (Prisma 6) |
+| `tracker/` | Офлайн-трекер мини-турнира (падел/теннис), только браузер |
 | `.cursor/rules/project.mdc` | Правила для Cursor |
 
 Клубы, партнёры и фамилии в макетах — заглушки. Реальные названия вносит администратор.
@@ -25,10 +26,26 @@ Telegram Mini App для месячного падел-турнира на тр�
 | Что | URL |
 |---|---|
 | Постоянное демо (без сервера) | https://wraggde1327.github.io/padel-irkutsk/ |
+| Трекер мини-турнира | https://wraggde1327.github.io/padel-irkutsk/tracker/ |
 | Код на GitHub | https://github.com/wraggde1327/padel-irkutsk |
 | Живое приложение (API + БД) | временный туннель — спросите агента или поднимите `pnpm --filter api start` |
 
-На Pages — только просмотр. Вход, запись и админка работают на живом API.
+На Pages — только просмотр Mini App. Вход, запись и админка работают на живом API.
+
+## Трекер мини-турнира
+
+Отдельное статическое приложение в `tracker/` (HTML/CSS/JS, без бэкенда). Данные только в `localStorage` браузера. После мержа в `main` GitHub Actions копирует его в артефакт Pages как `/tracker/`.
+
+Открыть: [https://wraggde1327.github.io/padel-irkutsk/tracker/](https://wraggde1327.github.io/padel-irkutsk/tracker/)
+
+Локально: `pnpm --filter web dev` → http://127.0.0.1:4174/tracker/ или просто открыть `tracker/index.html`.
+
+8 или 12 игроков, 2 или 3 корта, квалификация до 15/17, пары М+Ж или любые, рейтинг 1+последний или случайный микс, «король корта», таблица по кругам. Кнопка «Сбросить / начать заново» чистит всё после подтверждения.
+
+```bash
+node --test tracker/test/logic.test.mjs
+node tracker/test/e2e.mjs
+```
 
 ## Вход
 

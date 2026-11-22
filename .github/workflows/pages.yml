@@ -33,6 +33,30 @@ jobs:
           VITE_STATIC_DEMO: '1'
           VITE_BASE: /${{ github.event.repository.name }}/
         run: pnpm --filter web build
+      - name: Copy mini-tournament tracker into Pages output
+        run: |
+          python3 - <<'PY'
+          import shutil
+          from pathlib import Path
+          src = Path('tracker')
+          dst = Path('apps/web/dist/tracker')
+          dst.mkdir(parents=True, exist_ok=True)
+          skip = {'test', 'screenshots', 'package.json'}
+          for item in src.iterdir():
+              if item.name in skip or item.suffix == '.md':
+                  continue
+              target = dst / item.name
+              if item.is_dir():
+                  if target.exists():
+                      shutil.rmtree(target)
+                  shutil.copytree(item, target)
+              else:
+                  shutil.copy2(item, target)
+          index = dst / 'index.html'
+          if not index.is_file():
+              raise SystemExit('tracker/index.html missing from Pages dist')
+          print('published', index)
+          PY
       - run: cp apps/web/dist/index.html apps/web/dist/404.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
