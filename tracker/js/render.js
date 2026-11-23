@@ -20,6 +20,7 @@ import {
   qualificationTooLate,
   roundMatchesComplete,
 } from './qualification.js';
+import { WHEEL_COPIES } from './wheel.js';
 
 export function esc(value) {
   return String(value)
@@ -845,7 +846,7 @@ function renderScorePicker(store, tournament) {
   const shown = value == null || value === '' ? '' : String(value);
   const otherShown = other == null || other === '' ? '–' : String(other);
   const max = scoreWheelMax(settings, round.kind);
-  const items = ['']
+  const one = ['']
     .concat(Array.from({ length: max + 1 }, (_, n) => n))
     .map((n) => {
       const k = n === '' ? '' : String(n);
@@ -853,6 +854,7 @@ function renderScorePicker(store, tournament) {
       return `<div class="wheel-item${on ? ' is-on' : ''}" data-n="${esc(k)}" role="option" aria-selected="${on ? 'true' : 'false'}">${n === '' ? '—' : n}</div>`;
     })
     .join('');
+  const track = one.repeat(WHEEL_COPIES);
   const aria = `Счёт, ${title}`;
   return `
     <div class="picker-backdrop" data-picker-backdrop>
@@ -861,10 +863,8 @@ function renderScorePicker(store, tournament) {
         <p class="picker-other">${esc(otherName)} · <span id="picker-other-score">${esc(otherShown)}</span></p>
         <div class="wheel-wrap">
           <div class="wheel" data-wheel data-round="${roundIndex}" data-court="${match.court}" data-game="${gi}" data-side="${side}"
-            data-value="${esc(shown)}" role="listbox" aria-label="${esc(aria)}" tabindex="0">
-            <div class="wheel-pad" aria-hidden="true"></div>
-            ${items}
-            <div class="wheel-pad" aria-hidden="true"></div>
+            data-value="${esc(shown)}" data-max="${max}" role="listbox" aria-label="${esc(aria)}">
+            <div class="wheel-track" data-wheel-track>${track}</div>
           </div>
           <div class="wheel-frame" aria-hidden="true"></div>
           <input id="picker-score-input" class="input score picker-type is-hidden" inputmode="numeric" pattern="[0-9]*" type="text" maxlength="3"

@@ -321,7 +321,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.4');
+  assert.equal(sw.version, '0.7.5');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-home.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-home.png'), fullPage: true });
@@ -359,6 +359,25 @@ async function main() {
   assert.ok((await page.locator('.match-side').count()) >= 4);
   assert.equal(await page.locator('.match-duel .wheel').count(), 0);
   assert.equal(await page.locator('header [data-action="open-settings"]').getAttribute('aria-label'), 'Настройки турнира');
+  const chrome = await page.evaluate(() => {
+    const tabs = document.querySelector('.tabs');
+    const tab = document.querySelector('.tab');
+    const app = document.getElementById('app');
+    const top = document.querySelector('.top');
+    const ts = tabs ? getComputedStyle(tabs) : null;
+    return {
+      tabsPadTop: ts?.paddingTop,
+      tabH: tab ? tab.getBoundingClientRect().height : 0,
+      tabsH: tabs ? tabs.getBoundingClientRect().height : 0,
+      htmlPadTop: getComputedStyle(document.documentElement).paddingTop,
+      appPadTop: app ? getComputedStyle(app).paddingTop : '',
+      topPadTop: top ? getComputedStyle(top).paddingTop : '',
+    };
+  });
+  assert.equal(chrome.tabsPadTop, '0px');
+  assert.ok(chrome.tabH >= 55 && chrome.tabH <= 57, `tab height ${chrome.tabH}`);
+  assert.ok(chrome.tabsH >= 55 && chrome.tabsH <= 57, `tabs bar ${chrome.tabsH}`);
+  assert.equal(chrome.topPadTop, '10px');
   assert.equal(await page.locator('.summary-edit').count(), 0);
   assert.equal(await page.locator('text=Клавиатура').count(), 0);
   await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '9');
@@ -411,6 +430,17 @@ async function main() {
   await page.click('[data-action="open-settings"]');
   assert.equal(await page.locator('#btn-finish').count(), 0);
   assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
+  await page.waitForSelector('[data-key="scoringMode"]');
+  const scrolled = await page.evaluate(() => {
+    const main = document.getElementById('main');
+    main.scrollTop = 280;
+    return main.scrollTop;
+  });
+  assert.ok(scrolled > 40, `settings did not scroll (${scrolled})`);
+  await page.click('[data-key="scoringMode"][data-value="games"]');
+  await page.waitForTimeout(80);
+  const afterScroll = await page.evaluate(() => document.getElementById('main').scrollTop);
+  assert.ok(Math.abs(afterScroll - scrolled) < 12, `scroll jumped ${scrolled} -> ${afterScroll}`);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-finish.png'), fullPage: true });
   await page.click('[data-tab="play"]');
   await page.waitForSelector('#btn-finish');
@@ -673,6 +703,27 @@ async function main() {
   assert.equal(await page.locator('.match-duel .wheel').count(), 0);
   await page.locator('.score-box[data-side="a"]').first().click();
   await page.waitForSelector('.picker-sheet .wheel', { state: 'attached' });
+  const wheelMeta = await page.locator('[data-wheel]').evaluate((el) => {
+    const item = el.querySelector('.wheel-item');
+    return {
+      copies: el.querySelectorAll('.wheel-item').length,
+      itemH: item ? parseFloat(getComputedStyle(item).height) : 0,
+      wrapH: parseFloat(getComputedStyle(el).height),
+      max: Number(el.dataset.max),
+      hasTrack: Boolean(el.querySelector('[data-wheel-track]')),
+    };
+  });
+  assert.equal(wheelMeta.itemH, 56);
+  assert.ok(wheelMeta.wrapH >= 270, `wheel height ${wheelMeta.wrapH}`);
+  assert.equal(wheelMeta.hasTrack, true);
+  assert.ok(wheelMeta.copies >= (wheelMeta.max + 2) * 3, `copies ${wheelMeta.copies} max ${wheelMeta.max}`);
+  const wheelBox = await page.locator('[data-wheel]').boundingBox();
+  assert.ok(wheelBox);
+  await page.mouse.click(wheelBox.x + wheelBox.width / 2, wheelBox.y + wheelBox.height / 2);
+  await page.waitForFunction(() => {
+    const input = document.getElementById('picker-score-input');
+    return Boolean(input && !input.classList.contains('is-hidden'));
+  });
   await page.evaluate(() => {
     const input = document.getElementById('picker-score-input');
     if (!input) throw new Error('no picker input');
