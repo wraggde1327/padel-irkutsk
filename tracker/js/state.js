@@ -8,9 +8,9 @@ export function defaultSettings() {
     pointsPreset: 15,
     customPoints: 15,
     winByTwo: true,
-    gamesPerPairing: 2,
+    gamesPerPairing: 1,
     decidingGame: true,
-    qualifyingEnabled: true,
+    qualifyingEnabled: false,
     qualifyingPoints: 15,
     pairType: 'any',
     pairMethod: 'ranking',
@@ -18,6 +18,10 @@ export function defaultSettings() {
     kingOfTheCourt: false,
     tournamentFormat: 'free',
     mexicanoPairing: '1-4',
+    pairLock: 'locked',
+    lockedMatchups: 'strength',
+    standingsSort: 'points',
+    setupDone: false,
   };
 }
 
@@ -29,6 +33,8 @@ export function emptyUi() {
     toast: '',
     newPairsOpen: false,
     discardUnfinished: false,
+    setupStep: 0,
+    rebuildOffer: null,
   };
 }
 
@@ -38,6 +44,7 @@ export function emptyState() {
     players: [],
     settings: defaultSettings(),
     rounds: [],
+    fixedPairs: [],
     nextPlayerNum: 1,
     nextRoundNum: 1,
     ui: emptyUi(),
@@ -73,14 +80,23 @@ function migrate(raw) {
     settings.tournamentFormat = raw.settings?.kingOfTheCourt ? 'king' : 'free';
   }
   if (settings.mexicanoPairing !== '1-3') settings.mexicanoPairing = '1-4';
+  if (settings.pairLock !== 'unlocked') settings.pairLock = 'locked';
+  if (settings.lockedMatchups !== 'roundrobin') settings.lockedMatchups = 'strength';
+  if (settings.standingsSort !== 'wins') settings.standingsSort = 'points';
+  if (raw.settings?.setupDone == null) {
+    settings.setupDone = Array.isArray(raw.rounds) && raw.rounds.length > 0;
+  }
   const ui = { ...base.ui, ...(raw.ui || {}) };
   ui.toast = '';
   ui.newPairsOpen = false;
+  ui.rebuildOffer = null;
+  ui.setupStep = Number(ui.setupStep) || 0;
   return {
     version: 1,
     players: Array.isArray(raw.players) ? raw.players : [],
     settings,
     rounds: Array.isArray(raw.rounds) ? raw.rounds : [],
+    fixedPairs: Array.isArray(raw.fixedPairs) ? raw.fixedPairs : [],
     nextPlayerNum: Number(raw.nextPlayerNum) || 1,
     nextRoundNum: Number(raw.nextRoundNum) || 1,
     ui,

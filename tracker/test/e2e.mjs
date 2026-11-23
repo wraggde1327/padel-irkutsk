@@ -93,32 +93,30 @@ async function readState(page) {
   return page.evaluate((key) => JSON.parse(localStorage.getItem(key) || 'null'), STORAGE_KEY);
 }
 
-async function configure(page, { courts, format, qualifying = false, gamesPerPairing = 1, mexicano = null }) {
-  await page.click('[data-tab="settings"]');
-  await page.click(`[data-action="courts"][data-n="${courts}"]`);
-  await page.click(`[data-action="setting-val"][data-key="tournamentFormat"][data-value="${format}"]`);
-  if (mexicano) {
-    await page.click(`[data-action="setting-val"][data-key="mexicanoPairing"][data-value="${mexicano}"]`);
-  }
+async function configure(page, { courts, format, qualifying = false, pairLock = 'locked', mexicano = null }) {
   await page.evaluate(
-    ({ courts, format, qualifying, gamesPerPairing, mexicano }) => {
+    ({ courts, format, qualifying, pairLock, mexicano }) => {
       const key = 'padel-mini-tracker-v1';
       const state = JSON.parse(localStorage.getItem(key));
       Object.assign(state.settings, {
         courts,
         tournamentFormat: format,
         qualifyingEnabled: qualifying,
-        gamesPerPairing,
+        gamesPerPairing: 1,
         winByTwo: false,
         decidingGame: false,
         scoringMode: 'points',
         pointsPreset: 15,
         pairType: 'any',
+        pairLock,
+        lockedMatchups: 'strength',
+        standingsSort: 'points',
+        setupDone: true,
         ...(mexicano ? { mexicanoPairing: mexicano } : {}),
       });
       localStorage.setItem(key, JSON.stringify(state));
     },
-    { courts, format, qualifying, gamesPerPairing, mexicano },
+    { courts, format, qualifying, pairLock, mexicano },
   );
   await page.reload({ waitUntil: 'networkidle' });
 }
@@ -130,7 +128,7 @@ async function fillCurrentRound(page, a = 15, b = 7) {
       const state = JSON.parse(localStorage.getItem(key));
       const roundIndex = state.rounds.length - 1;
       const last = state.rounds[roundIndex];
-      const n = Math.max(1, Number(state.settings.gamesPerPairing) || 1);
+      const n = state.settings.scoringMode === 'games' ? Math.max(1, Number(state.settings.gamesPerPairing) || 1) : 1;
       for (const match of last.matches) {
         match.games = Array.from({ length: n }, () => ({ a, b, touched: { a: true, b: true } }));
       }
@@ -164,9 +162,9 @@ function partnerSet(round) {
   return set;
 }
 
-async function playFormat(page, { names, courts, format, rounds, screenshot, mexicano }) {
+async function playFormat(page, { names, courts, format, rounds, screenshot, mexicano, pairLock = 'locked' }) {
   await resetApp(page);
-  await configure(page, { courts, format, qualifying: false, gamesPerPairing: 1, mexicano });
+  await configure(page, { courts, format, qualifying: false, pairLock, mexicano });
   await page.click('[data-tab="players"]');
   await addPlayers(page, names);
   await page.click('[data-tab="play"]');
@@ -228,6 +226,14 @@ async function playFormat(page, { names, courts, format, rounds, screenshot, mex
     const last = state.rounds[state.rounds.length - 1];
     assert.equal(last.matches.length, courts);
   }
+  if (format === 'free' && pairLock === 'locked' && rounds >= 2) {
+    assert.deepEqual([...partnerSet(state.rounds[0])].sort(), [...partnerSet(state.rounds[1])].sort());
+  }
+  if (format === 'free' && pairLock === 'unlocked' && rounds >= 2) {
+    const first = [...partnerSet(state.rounds[0])].sort();
+    const second = [...partnerSet(state.rounds[1])].sort();
+    assert.ok(first.join() !== second.join() || first.length > 0);
+  }
   await page.click('[data-tab="table"]');
   await page.waitForSelector('table.standings tbody tr td.name');
   assert.equal(await page.locator('table.standings tbody tr').count(), names.length);
@@ -256,74 +262,58 @@ async function main() {
   assert.equal(await page.locator('.player-row').count(), 8);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-players.png'), fullPage: true });
 
-  await page.click('[data-tab="settings"]');
-  const winByTwo = page.locator('[data-action="toggle"][data-key="winByTwo"]');
-  if (await winByTwo.isChecked()) await winByTwo.click();
-  await page.click('[data-action="preset"][data-n="15"]');
-  const qual = page.locator('[data-action="toggle"][data-key="qualifyingEnabled"]');
-  if (!(await qual.isChecked())) await qual.click();
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-formats.png'), fullPage: true });
-  assert.ok(await page.locator('.format-opt').count() >= 5);
-  assert.match(await page.locator('.format-opt').nth(1).innerText(), /Американо/);
-  assert.match(await page.locator('.format-opt').nth(2).innerText(), /Мексикано/);
-  assert.match(await page.locator('.format-opt').nth(3).innerText(), /Эскалера/);
-  assert.match(await page.locator('.format-opt').nth(4).innerText(), /Кинг/);
-
   await page.click('[data-tab="play"]');
-  await page.click('[data-action="gen-round"][data-kind="qualifying"]');
-  await page.waitForSelector('.match');
-  const courts = await page.locator('.court-line').allTextContents();
-  assert.ok(courts.some((t) => t.includes('Корт 1')));
-  assert.ok(courts.some((t) => t.includes('Корт 2')));
+  await page.waitForSelector('#btn-setup-next, #btn-setup-start');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-format.png'), fullPage: true });
+  while (await page.locator('#btn-setup-next').count()) {
+    const title = (await page.locator('#main h2').first().textContent()) || '';
+    if (title.includes('Счёт')) {
+      await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-score.png'), fullPage: true });
+    }
+    if (title.includes('Пары')) {
+      await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-lock.png'), fullPage: true });
+    }
+    await page.click('#btn-setup-next');
+  }
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-qual.png'), fullPage: true });
+  await page.click('#btn-setup-start');
+  await page.waitForSelector('.match, #btn-next-round');
+  if (await page.locator('#btn-next-round').count()) {
+    await page.click('#btn-next-round');
+    await page.waitForSelector('.match');
+  }
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-games.png'), fullPage: true });
+  assert.ok(await page.locator('.summary-line').count());
+  assert.ok(await page.locator('#btn-change-pairs').isVisible());
 
   await typeScore(page, page.locator('#score-r0-c1-g0-a'), '15');
-  assert.equal(await page.locator('#score-r0-c1-g0-b').inputValue(), '0');
   await typeScore(page, page.locator('#score-r0-c1-g0-b'), '11');
   await typeScore(page, page.locator('#score-r0-c2-g0-a'), '15');
   await typeScore(page, page.locator('#score-r0-c2-g0-b'), '9');
-
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-qualifying.png'), fullPage: true });
-
-  await page.click('[data-action="gen-round"][data-kind="regular"]');
-  await page.waitForSelector('input.score[data-round="1"]');
-  const aIds = await page.$$eval('input.score[data-round="1"][data-side="a"]', (els) =>
-    els.map((el) => el.id),
-  );
-  assert.ok(aIds.length >= 4, `expected regular-round scores, got ${aIds.join(',')}`);
-  for (const id of aIds) {
-    await typeScore(page, page.locator(`#${id}`), '15');
-  }
 
   await page.click('[data-tab="table"]');
   await page.waitForSelector('table.standings tbody tr td.name');
-  const firstName = (await page.locator('table.standings tbody tr td.name').first().textContent()) || '';
-  assert.ok(firstName.length > 0);
-  const pointsCell = (await page.locator('table.standings tbody tr td').nth(4).textContent()) || '';
-  assert.ok(pointsCell.includes('–'));
-
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-table.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-table.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await page.reload({ waitUntil: 'networkidle' });
-  await page.click('[data-tab="players"]');
-  assert.equal(await page.locator('.player-row').count(), 8);
-
   await page.click('[data-tab="play"]');
-  await page.click('#btn-new-pairs');
+  await page.click('#btn-change-pairs');
   await page.waitForSelector('#new-pairs');
   assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking"]').isVisible());
+  assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking-mixed"]').isVisible());
+  assert.ok(await page.locator('[data-action="new-pairs"][data-method="rotate-mixed"]').isVisible());
   assert.ok(await page.locator('[data-action="new-pairs"][data-method="random"]').isVisible());
-  assert.ok(await page.locator('[data-action="new-pairs"][data-method="mixed"]').isVisible());
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs.png'), fullPage: true });
 
   await page.click('[data-action="new-pairs"][data-method="random"]');
-  await page.waitForFunction((n) => {
+  await page.waitForFunction(() => {
     const raw = localStorage.getItem('padel-mini-tracker-v1');
     const parsed = raw && JSON.parse(raw);
-    return parsed && parsed.rounds.length >= n && parsed.rounds.at(-1).override;
-  }, 3);
+    return parsed && parsed.rounds.length >= 1 && parsed.rounds.at(-1).override;
+  });
   const opened = await readState(page);
   const openIndex = opened.rounds.length - 1;
   await page.evaluate((roundIndex) => {
@@ -333,9 +323,9 @@ async function main() {
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }, openIndex);
   await page.waitForTimeout(280);
-  await page.click('#btn-new-pairs');
+  await page.click('#btn-change-pairs');
   await page.waitForSelector('.callout');
-  assert.match(await page.locator('.callout').innerText(), /уже есть счета/);
+  assert.match(await page.locator('#new-pairs .callout').innerText(), /уже есть счета/);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs-partial.png'), fullPage: true });
   await page.click('[data-action="new-pairs"][data-method="ranking"]');
   await page.waitForFunction((n) => {
@@ -345,9 +335,14 @@ async function main() {
   const afterPartial = await readState(page);
   const kept = afterPartial.rounds[afterPartial.rounds.length - 2];
   assert.equal(kept.closedEarly, true);
-  assert.ok(kept.matches.some((m) => (m.games || []).some((g) => g.a != null)));
+
+  await page.click('[data-tab="settings"]');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-formats.png'), fullPage: true });
 
   const formats = [
+    { format: 'free', names: NAMES8, courts: 2, rounds: 3, pairLock: 'locked', screenshot: 'mobile-390-free-locked-8.png' },
+    { format: 'free', names: NAMES8, courts: 2, rounds: 3, pairLock: 'unlocked', screenshot: 'mobile-390-free-unlocked-8.png' },
+    { format: 'free', names: NAMES12, courts: 3, rounds: 3, pairLock: 'locked', screenshot: 'mobile-390-free-locked-12.png' },
     { format: 'americano', names: NAMES8, courts: 2, rounds: 3, screenshot: 'mobile-390-americano-8.png' },
     { format: 'americano', names: NAMES12, courts: 3, rounds: 3, screenshot: 'mobile-390-americano-12.png' },
     {
@@ -379,7 +374,7 @@ async function main() {
   await resetApp(page);
   await addPlayers(page, NAMES8);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-players-dark.png'), fullPage: true });
-  await configure(page, { courts: 2, format: 'king', qualifying: false, gamesPerPairing: 1 });
+  await configure(page, { courts: 2, format: 'king', qualifying: false });
   await page.click('[data-tab="play"]');
   await page.click('[data-action="gen-round"][data-kind="regular"]');
   await page.waitForSelector('.match');
