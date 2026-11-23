@@ -13,7 +13,7 @@ import { computeStandings, sortStandings } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
 import { FORMAT_OPTIONS, formatTitle } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
-import { activeTournament, ensureMatchGames } from './state.js';
+import { activeTournament, ensureMatchGames, isFinished } from './state.js';
 
 export function esc(value) {
   return String(value)
@@ -128,7 +128,7 @@ export function renderApp(root, store) {
           </nav>`
         : ''
     }
-    ${inTournament ? renderScorePicker(store, tournament) : ''}
+    ${inTournament && !isFinished(tournament) ? renderScorePicker(store, tournament) : ''}
   `;
 }
 
@@ -151,10 +151,11 @@ function renderHeader(store, tournament, screen) {
     </header>`;
   }
   const name = tournament?.name || 'Турнир';
+  const done = isFinished(tournament);
   return `<header class="top top-row">
     <button type="button" class="icon-btn back-btn" data-action="go-home" aria-label="К списку турниров">←</button>
     <div class="top-title">
-      <p class="eyebrow">${esc(formatTitle(tournament?.settings.tournamentFormat))}</p>
+      <p class="eyebrow">${esc(formatTitle(tournament?.settings.tournamentFormat))}${done ? ' · Завершён' : ''}</p>
       <h1>${esc(name)}</h1>
     </div>
     <button type="button" class="icon-btn settings-btn" data-action="open-settings" aria-label="Настройки турнира">${SETTINGS_GEAR}</button>
@@ -199,7 +200,7 @@ function renderHome(store) {
                   <strong>${esc(t.name)}</strong>
                   <span>${esc(formatTitle(t.settings.tournamentFormat))} · ${n} игроков${
                     n >= 4 ? ` · ${ruCourts(courts)}` : ''
-                  }${t.updatedAt ? ` · ${esc(formatDate(t.updatedAt))}` : ''}</span>
+                  }${isFinished(t) ? ' · Завершён' : ''}${t.updatedAt ? ` · ${esc(formatDate(t.updatedAt))}` : ''}</span>
                 </button>`
           }
           <div class="home-item-actions">
@@ -326,7 +327,7 @@ function renderFormatSettings(s, { draft = false, players = [] } = {}) {
   return `
     ${format === 'americano' || format === 'mexicano' ? renderVariant(s, action, format) : renderMixed(s, action, okMixed, players)}
     ${format === 'americano' || format === 'mexicano' ? renderCourtPairing(s, action) : ''}
-    ${renderRoundsLimit(s, draft)}
+    <p class="hint">Корты считаются сами: игроков ÷ 4. Лишние сидят по очереди.</p>
     <h3>Счёт матча</h3>
     <p class="hint">Как в Lunda: игра до суммы очков, без разницы в 2.</p>
     ${renderScoringFields(s, { lunda: true, draft })}`;
@@ -359,7 +360,7 @@ function renderCourtPairing(s, action) {
       <button type="button" class="seg-btn ${style === '1-4' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-4">1-4, 2-3</button>
       <button type="button" class="seg-btn ${style === '1-3' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-3">1-3, 2-4</button>
     </div>
-    <p class="hint">Кто с кем из 1-й…4-й на корте. В мексикано — по текущему рейтингу; в американо напарников задаёт полный круг.</p>`;
+    <p class="hint">Кто с кем из 1-й…4-й на корте. В мексикано — по текущему рейтингу. В американо пары идут по графику «каждый с каждым».</p>`;
 }
 
 function renderPairLock(s, action) {
@@ -397,24 +398,6 @@ function renderMixed(s, action, okMixed, players) {
       <button type="button" class="seg-btn ${on ? 'is-on' : ''}" data-action="${action}" data-key="pairType" data-value="mixed">Да</button>
       <button type="button" class="seg-btn ${!on ? 'is-on' : ''}" data-action="${action}" data-key="pairType" data-value="any">Нет</button>
     </div>`;
-}
-
-function renderRoundsLimit(s, draft) {
-  const action = draft ? 'draft-setting-val' : 'setting-val';
-  const val = s.roundsLimit;
-  const presets = ['full', '4', '6', '8'];
-  return `
-    <p class="field-label">Сколько кругов</p>
-    <div class="seg wrap">
-      ${presets
-        .map((n) => {
-          const on = String(val) === n || (n === 'full' && (val === 'full' || val == null));
-          const label = n === 'full' ? 'Полный круг' : n;
-          return `<button type="button" class="seg-btn ${on ? 'is-on' : ''}" data-action="${action}" data-key="roundsLimit" data-value="${n}">${label}</button>`;
-        })
-        .join('')}
-    </div>
-    <p class="hint">Полный круг — пока каждый не сыграет со всеми в напарниках. Либо остановиться после 4, 6 или 8 кругов. Корты: игроков ÷ 4, лишние сидят.</p>`;
 }
 
 function renderTotalPointsFields(s, { draft = false } = {}) {
@@ -517,16 +500,21 @@ function rosterHint(players) {
 
 function renderPlayers(store, tournament) {
   const { players } = tournament;
+  const finished = isFinished(tournament);
   const rows = players
     .map(
       (p) => `
       <li class="player-row" data-id="${esc(p.id)}">
-        <input class="input name-input" data-action="rename" data-id="${esc(p.id)}" value="${esc(p.name)}" maxlength="40" aria-label="Имя" />
+        ${
+          finished
+            ? `<p class="name-input is-readonly">${esc(p.name)}</p>`
+            : `<input class="input name-input" data-action="rename" data-id="${esc(p.id)}" value="${esc(p.name)}" maxlength="40" aria-label="Имя" />`
+        }
         <div class="seg" role="group" aria-label="Пол">
-          <button type="button" class="seg-btn ${p.gender === 'M' ? 'is-on' : ''}" data-action="gender" data-id="${esc(p.id)}" data-gender="M">М</button>
-          <button type="button" class="seg-btn ${p.gender === 'F' ? 'is-on' : ''}" data-action="gender" data-id="${esc(p.id)}" data-gender="F">Ж</button>
+          <button type="button" class="seg-btn ${p.gender === 'M' ? 'is-on' : ''}" data-action="gender" data-id="${esc(p.id)}" data-gender="M" ${finished ? 'disabled' : ''}>М</button>
+          <button type="button" class="seg-btn ${p.gender === 'F' ? 'is-on' : ''}" data-action="gender" data-id="${esc(p.id)}" data-gender="F" ${finished ? 'disabled' : ''}>Ж</button>
         </div>
-        <button type="button" class="icon-btn" data-action="remove-player" data-id="${esc(p.id)}" aria-label="Удалить">×</button>
+        ${finished ? '' : `<button type="button" class="icon-btn" data-action="remove-player" data-id="${esc(p.id)}" aria-label="Удалить">×</button>`}
       </li>`,
     )
     .join('');
@@ -534,12 +522,16 @@ function renderPlayers(store, tournament) {
   return `
     <section class="card">
       <h2>Участники</h2>
-      <p class="hint">${esc(rosterHint(players))}</p>
+      <p class="hint">${esc(rosterHint(players))}${finished ? ' Турнир завершён.' : ''}</p>
       <ul class="player-list">${rows || '<li class="empty">Пока никого нет</li>'}</ul>
-      <form class="add-row" data-action="add-player-form">
+      ${
+        finished
+          ? ''
+          : `<form class="add-row" data-action="add-player-form">
         <input class="input" id="add-name" name="name" placeholder="Имя игрока" maxlength="40" autocomplete="off" required />
         <button class="btn btn-primary" type="submit">Добавить</button>
-      </form>
+      </form>`
+      }
       ${
         ready
           ? `<button type="button" class="btn btn-primary" data-action="tab" data-tab="play" style="width:100%;margin-top:12px">К играм</button>`
@@ -576,18 +568,19 @@ function renderPlay(store, tournament) {
             ? 'Следующий круг'
             : 'Начать круг';
 
+  const finished = isFinished(tournament);
   const actions = [];
-  if (canQual && (!last || lastDone)) {
+  if (!finished && canQual && (!last || lastDone)) {
     actions.push(
       `<button type="button" class="btn btn-ghost" data-action="gen-round" data-kind="qualifying">Квалификация</button>`,
     );
   }
-  if (!last || lastDone) {
+  if (!finished && (!last || lastDone)) {
     actions.push(
       `<button type="button" class="btn btn-primary" id="btn-next-round" data-action="gen-round" data-kind="regular">${nextLabel}</button>`,
     );
   }
-  if (format === 'free') {
+  if (!finished && format === 'free') {
     actions.push(
       `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`,
     );
@@ -604,14 +597,19 @@ function renderPlay(store, tournament) {
     <section class="stack">
       <p class="summary-line">${esc(setupSummary(tournament))}</p>
       ${
+        finished
+          ? '<p class="hint">Турнир завершён. Итог — во вкладке «Таблица».</p>'
+          : ''
+      }
+      ${
         actions.length
           ? `<div class="card play-bar">
         <div class="actions">${actions.join('')}</div>
       </div>`
           : ''
       }
-      ${store.ui.rebuildOffer != null ? renderRebuildOffer() : ''}
-      ${store.ui.newPairsOpen ? renderChangePairsPanel(store, last, lastDone) : ''}
+      ${!finished && store.ui.rebuildOffer != null ? renderRebuildOffer() : ''}
+      ${!finished && store.ui.newPairsOpen ? renderChangePairsPanel(store, last, lastDone) : ''}
       ${history || '<div class="card"><p class="hint">Кругов ещё нет — нажмите «Начать круг».</p></div>'}
     </section>
   `;
@@ -743,7 +741,7 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
         n === 1
           ? ''
           : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : settings.gamesPerPairing) ? ' · решающий' : ''}`;
-      return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'a', g.a, aLabel)}`;
+      return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'a', g.a, aLabel, isFinished(tournament))}`;
     })
     .join('');
   const bScores = games
@@ -752,12 +750,13 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
         n === 1
           ? ''
           : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : settings.gamesPerPairing) ? ' · решающий' : ''}`;
-      return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'b', g.b, bLabel)}`;
+      return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'b', g.b, bLabel, isFinished(tournament))}`;
     })
     .join('');
-  const boards = showTennis
-    ? games.map((g, gi) => renderScoreboard(store, roundIndex, match.court, gi, g)).join('')
-    : '';
+  const boards =
+    showTennis && !isFinished(tournament)
+      ? games.map((g, gi) => renderScoreboard(store, roundIndex, match.court, gi, g)).join('')
+      : '';
   return `
     <div class="match">
       <div class="match-head">
@@ -780,10 +779,13 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
   `;
 }
 
-function scoreBox(roundIndex, court, gameIndex, side, value, teamLabelText) {
+function scoreBox(roundIndex, court, gameIndex, side, value, teamLabelText, finished = false) {
   const shown = value == null || value === '' ? '—' : String(value);
   const id = `score-r${roundIndex}-c${court}-g${gameIndex}-${side}`;
   const aria = teamLabelText ? `Счёт, ${teamLabelText}` : 'Счёт';
+  if (finished) {
+    return `<span class="score-box is-readonly" id="${id}" aria-label="${esc(aria)}">${esc(shown)}</span>`;
+  }
   return `<button type="button" class="score-box" data-action="open-score-picker"
     data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
     id="${id}" aria-label="${esc(aria)}">${esc(shown)}</button>`;
@@ -905,11 +907,14 @@ function renderTable(store, tournament) {
         .join('');
       return `<div class="hist-block"><h4>${esc(roundTitle(round, index))}</h4>${lines}</div>`;
     })
+    .reverse()
     .join('');
+  const finished = isFinished(tournament);
   return `
     <section class="stack">
       <div class="card">
-        <h2>Таблица</h2>
+        <h2>${finished ? 'Итог' : 'Таблица'}</h2>
+        ${finished ? '<p class="hint">Турнир завершён. Можно открыть снова в настройках.</p>' : ''}
         <div class="seg sort-seg" role="group" aria-label="Сортировка">
           <button type="button" class="seg-btn ${sort === 'points' ? 'is-on' : ''}" data-action="sort" data-sort="points">Очки</button>
           <button type="button" class="seg-btn ${sort === 'wins' ? 'is-on' : ''}" data-action="sort" data-sort="wins">Победы</button>
@@ -941,27 +946,39 @@ function renderTable(store, tournament) {
 
 function renderSettings(store, tournament) {
   const s = tournament.settings;
+  const finished = isFinished(tournament);
   return `
     <section class="stack">
       <div class="card">
         <h2>Настройки турнира</h2>
         <label class="field">Название
-          <input class="input" data-action="tournament-name" value="${esc(tournament.name)}" maxlength="60" />
+          <input class="input" data-action="tournament-name" value="${esc(tournament.name)}" maxlength="60" ${finished ? 'disabled' : ''} />
         </label>
         <p class="hint">${esc(setupSummary(tournament))}</p>
-        ${renderFormatSettings(s, { draft: false, players: tournament.players })}
+        ${
+          finished
+            ? `<fieldset class="is-readonly" disabled>${renderFormatSettings(s, { draft: false, players: tournament.players })}</fieldset>`
+            : renderFormatSettings(s, { draft: false, players: tournament.players })
+        }
       </div>
       <div class="card">
         <h2>Файл этого турнира</h2>
         <p class="hint">Экспорт только его. Импорт — добавить как новый или заменить этот, не молча.</p>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-action="export-one">Экспорт этого</button>
-          <button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>
+          ${finished ? '' : '<button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>'}
         </div>
       </div>
-      <div class="card">
-        <button type="button" class="btn btn-ghost" data-action="tab" data-tab="play" style="width:100%">К играм</button>
-      </div>
+      ${
+        finished
+          ? `<div class="card">
+              <p class="hint">Турнир завершён. Таблица зафиксирована.</p>
+              <button type="button" class="btn btn-ghost" data-action="reopen-tournament" id="btn-reopen">Открыть снова</button>
+            </div>`
+          : `<div class="card finish-card">
+              <button type="button" class="btn btn-finish" data-action="finish-tournament" id="btn-finish">Завершить турнир</button>
+            </div>`
+      }
     </section>
   `;
 }
