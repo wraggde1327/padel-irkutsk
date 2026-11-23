@@ -16,6 +16,7 @@
   --radius: 16px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --header-extra-top: 0px;
   --bar: rgba(249, 249, 249, 0.94);
   --tab-off: #8e8e93;
   --wheel-item: 44px;
@@ -40,7 +41,13 @@
 @media (display-mode: standalone), (display-mode: fullscreen) {
   :root {
     --safe-top: max(env(safe-area-inset-top, 0px), 47px);
+    --header-extra-top: 12px;
   }
+}
+/* iOS navigator.standalone, если media display-mode не сработал. */
+html.is-standalone {
+  --safe-top: max(env(safe-area-inset-top, 0px), 47px);
+  --header-extra-top: 12px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -121,7 +128,7 @@ button, input, select { font: inherit; color: inherit; }
   position: relative;
   margin: 0;
   padding: 0 16px;
-  padding-top: calc(8px + var(--safe-top));
+  padding-top: calc(8px + var(--safe-top) + var(--header-extra-top, 0px));
   background: var(--bg);
   z-index: 1;
 }

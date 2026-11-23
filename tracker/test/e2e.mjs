@@ -137,6 +137,14 @@ async function setIphoneSafe(page, active, insets = { top: IPHONE_SAFE_TOP, bott
   await page.addStyleTag({ content: iphoneSafeCss(active, insets.top, insets.bottom) });
 }
 
+const STANDALONE_EXTRA_TOP = 12;
+
+async function setStandalone(page, active) {
+  await page.evaluate((on) => {
+    document.documentElement.classList.toggle('is-standalone', Boolean(on));
+  }, active);
+}
+
 async function typeScore(page, locator, value) {
   await locator.click();
   await page.waitForSelector('#picker-score-input', { state: 'attached' });
@@ -406,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.14');
+  assert.equal(sw.version, '0.7.15');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -419,6 +427,10 @@ async function main() {
   });
   assert.match(cssText, /max\(env\(safe-area-inset-top/);
   assert.match(cssText, /47px/);
+  assert.match(cssText, /--header-extra-top:\s*12px/);
+  assert.match(cssText, /html\.is-standalone/);
+  assert.match(cssText, /display-mode:\s*standalone/);
+  assert.match(cssText, /padding-top:\s*calc\(\s*8px\s*\+\s*var\(--safe-top\)\s*\+\s*var\(--header-extra-top/);
   assert.match(cssText, /-webkit-fill-available/);
   assert.doesNotMatch(cssText, /max\(var\(--safe-bottom\)/);
   assert.doesNotMatch(cssText, /var\(--safe-bottom\)\s*\*\s*0\.5/);
@@ -546,6 +558,8 @@ async function main() {
       appPadBottom: app ? getComputedStyle(app).paddingBottom : '',
       appPos: app ? getComputedStyle(app).position : '',
       topPadTop: top ? getComputedStyle(top).paddingTop : '',
+      headerExtra: getComputedStyle(document.documentElement).getPropertyValue('--header-extra-top').trim(),
+      standaloneClass: document.documentElement.classList.contains('is-standalone'),
       h1Top: h1 ? h1.getBoundingClientRect().top : 0,
       appTop: appBox.top,
       tabsBottom: tabsBox.bottom,
@@ -578,6 +592,8 @@ async function main() {
   assert.equal(chrome.appPadTop, '0px');
   assert.equal(chrome.appPadBottom, '0px');
   assert.equal(chrome.topPadTop, '8px');
+  assert.equal(chrome.headerExtra, '0px');
+  assert.equal(chrome.standaloneClass, false);
   assert.equal(chrome.tabsPadBottom, '5px');
   assert.equal(chrome.tabsPadTop, '7px');
   assert.equal(chrome.tabsPadLeft, '0px');
@@ -722,6 +738,39 @@ async function main() {
     `tab label bottom ${safeChrome.labelBottom}`,
   );
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-safe-play.png') });
+  await setStandalone(page, true);
+  await page.waitForFunction((expectPad) => {
+    const top = document.querySelector('.top');
+    const h1 = document.querySelector('.top h1');
+    if (!top || !h1) return false;
+    return Math.abs(parseFloat(getComputedStyle(top).paddingTop) - expectPad) < 1;
+  }, 8 + IPHONE_SAFE_TOP + STANDALONE_EXTRA_TOP);
+  const standaloneChrome = await page.evaluate(() => {
+    const top = document.querySelector('.top');
+    const h1 = document.querySelector('.top h1');
+    return {
+      hasClass: document.documentElement.classList.contains('is-standalone'),
+      extra: getComputedStyle(document.documentElement).getPropertyValue('--header-extra-top').trim(),
+      topPad: parseFloat(getComputedStyle(top).paddingTop),
+      h1Top: h1.getBoundingClientRect().top,
+    };
+  });
+  assert.equal(standaloneChrome.hasClass, true);
+  assert.equal(standaloneChrome.extra, '12px');
+  assert.ok(
+    Math.abs(standaloneChrome.topPad - (8 + IPHONE_SAFE_TOP + STANDALONE_EXTRA_TOP)) < 1,
+    `standalone header pad ${standaloneChrome.topPad}`,
+  );
+  assert.ok(
+    standaloneChrome.h1Top >= IPHONE_SAFE_TOP + 8 + STANDALONE_EXTRA_TOP,
+    `standalone title ${standaloneChrome.h1Top}`,
+  );
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-standalone-play.png') });
+  await setStandalone(page, false);
+  await page.waitForFunction((expectPad) => {
+    const top = document.querySelector('.top');
+    return top && Math.abs(parseFloat(getComputedStyle(top).paddingTop) - expectPad) < 1;
+  }, 8 + IPHONE_SAFE_TOP);
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-iphone-safe-play.png') });
   await page.setViewportSize({ width: 375, height: 667 });
