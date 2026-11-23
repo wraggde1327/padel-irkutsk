@@ -241,6 +241,31 @@ h3, h4 { margin: 0 0 8px; font-size: 15px; font-weight: 650; }
 .tab.is-on { color: var(--fg); background: var(--bg); }
 .sort-seg { margin-bottom: 8px; }
 .hist-block { margin-top: 12px; }
+.format-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.format-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  min-height: 64px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+.format-opt strong { font-size: 16px; }
+.format-opt span { font-size: 13px; color: var(--muted); font-weight: 400; line-height: 1.35; }
+.format-opt.is-on { border-color: var(--fg); background: var(--bg); }
+.move-note { margin: 0 0 10px; font-size: 14px; color: var(--muted); line-height: 1.4; }
+.callout {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+.callout p { margin: 0 0 8px; }
+.sheet { border-color: var(--fg); }
 @media (min-width: 720px) {
   #app, .tabs { max-width: 560px; }
 }

@@ -16,6 +16,8 @@ export function defaultSettings() {
     pairMethod: 'ranking',
     courts: 2,
     kingOfTheCourt: false,
+    tournamentFormat: 'free',
+    mexicanoPairing: '1-4',
   };
 }
 
@@ -25,6 +27,8 @@ export function emptyUi() {
     sort: 'points',
     scoreboard: null,
     toast: '',
+    newPairsOpen: false,
+    discardUnfinished: false,
   };
 }
 
@@ -65,8 +69,13 @@ export function clearState(storage = globalThis.localStorage) {
 function migrate(raw) {
   const base = emptyState();
   const settings = { ...base.settings, ...(raw.settings || {}) };
+  if (!raw.settings?.tournamentFormat) {
+    settings.tournamentFormat = raw.settings?.kingOfTheCourt ? 'king' : 'free';
+  }
+  if (settings.mexicanoPairing !== '1-3') settings.mexicanoPairing = '1-4';
   const ui = { ...base.ui, ...(raw.ui || {}) };
   ui.toast = '';
+  ui.newPairsOpen = false;
   return {
     version: 1,
     players: Array.isArray(raw.players) ? raw.players : [],

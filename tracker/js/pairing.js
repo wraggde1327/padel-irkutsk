@@ -1,130 +1,32 @@
 import { shuffle } from './rng.js';
 import { countedGames, gamesSum } from './scoring.js';
 import { rankPlayers } from './standings.js';
+import { nextFormatRound } from './formats.js';
+import {
+  bestPairingOfFour,
+  expectedPlayerCount,
+  formatMatchLine,
+  genderCounts,
+  idsOf,
+  matchIsMixed,
+  partnerCounts,
+  partnerKey,
+  playersByIdMap,
+  rankingPartnerPairs,
+  pairsToMatches,
+} from './pairs.js';
 
-export function partnerKey(a, b) {
-  return a < b ? `${a}:${b}` : `${b}:${a}`;
-}
-
-export function expectedPlayerCount(courts) {
-  return Number(courts) * 4;
-}
-
-export function genderCounts(players) {
-  let m = 0;
-  let f = 0;
-  for (const p of players) {
-    if (p.gender === 'F') f += 1;
-    else m += 1;
-  }
-  return { m, f };
-}
-
-export function partnerCounts(rounds) {
-  const map = new Map();
-  for (const round of rounds) {
-    for (const match of round.matches) {
-      bump(map, match.teamA[0], match.teamA[1]);
-      bump(map, match.teamB[0], match.teamB[1]);
-    }
-  }
-  return map;
-}
-
-function bump(map, a, b) {
-  const k = partnerKey(a, b);
-  map.set(k, (map.get(k) || 0) + 1);
-}
-
-function pairRepeatScore(teamA, teamB, counts) {
-  return (
-    (counts.get(partnerKey(teamA[0], teamA[1])) || 0) +
-    (counts.get(partnerKey(teamB[0], teamB[1])) || 0)
-  );
-}
-
-function isMixedTeam(playersById, ids) {
-  const g0 = playersById.get(ids[0])?.gender;
-  const g1 = playersById.get(ids[1])?.gender;
-  return g0 && g1 && g0 !== g1;
-}
-
-function matchIsMixed(playersById, match) {
-  return isMixedTeam(playersById, match.teamA) && isMixedTeam(playersById, match.teamB);
-}
-
-/** Три способа разбить четырёх игроков на две пары. */
-export function pairingsOfFour(ids) {
-  const [a, b, c, d] = ids;
-  return [
-    { teamA: [a, b], teamB: [c, d] },
-    { teamA: [a, c], teamB: [b, d] },
-    { teamA: [a, d], teamB: [b, c] },
-  ];
-}
-
-function bestPairingOfFour(ids, playersById, counts, mixed, rng) {
-  const options = pairingsOfFour(ids);
-  let best = [];
-  let bestScore = Infinity;
-  for (const opt of options) {
-    if (mixed && !matchIsMixed(playersById, opt)) continue;
-    const score = pairRepeatScore(opt.teamA, opt.teamB, counts) + rng() * 0.01;
-    if (score < bestScore) {
-      bestScore = score;
-      best = [opt];
-    } else if (Math.abs(score - bestScore) < 1e-9) {
-      best.push(opt);
-    }
-  }
-  if (!best.length) {
-    for (const opt of options) {
-      const score = pairRepeatScore(opt.teamA, opt.teamB, counts) + rng() * 0.01;
-      if (score < bestScore) {
-        bestScore = score;
-        best = [opt];
-      }
-    }
-  }
-  return best[0] || options[0];
-}
-
-function idsOf(players) {
-  return players.map((p) => p.id);
-}
-
-/**
- * Пары по рейтингу: 1+последний, 2+(n-1), … затем сильнейшая пара против слабейшей на корте 1.
- */
-export function rankingPartnerPairs(ranked, mixed) {
-  const remaining = ranked.slice();
-  const pairs = [];
-  while (remaining.length >= 2) {
-    const first = remaining.shift();
-    let idx = remaining.length - 1;
-    if (mixed) {
-      while (idx >= 0 && remaining[idx].gender === first.gender) idx -= 1;
-      if (idx < 0) idx = remaining.length - 1;
-    }
-    const partner = remaining.splice(idx, 1)[0];
-    pairs.push([first, partner]);
-  }
-  return pairs;
-}
-
-export function pairsToMatches(pairs) {
-  const matches = [];
-  const n = pairs.length;
-  for (let i = 0; i < n / 2; i += 1) {
-    matches.push({
-      court: i + 1,
-      teamA: idsOf(pairs[i]),
-      teamB: idsOf(pairs[n - 1 - i]),
-      games: [],
-    });
-  }
-  return matches;
-}
+export {
+  bestPairingOfFour,
+  expectedPlayerCount,
+  formatMatchLine,
+  genderCounts,
+  partnerCounts,
+  partnerKey,
+  pairingsOfFour,
+  rankingPartnerPairs,
+  pairsToMatches,
+} from './pairs.js';
 
 function randomMatches(players, courts, mixed, counts, playersById, rng, unusual, rankedIds) {
   const need = courts * 4;
@@ -142,7 +44,10 @@ function randomMatches(players, courts, mixed, counts, playersById, rng, unusual
       const group = shuffled.slice(c * 4, c * 4 + 4).map((p) => p.id);
       const pairing = bestPairingOfFour(group, playersById, counts, mixed, rng);
       if (mixed && !matchIsMixed(playersById, pairing)) ok = false;
-      score += pairRepeatScore(pairing.teamA, pairing.teamB, counts) * 100;
+      score +=
+        ((counts.get(partnerKey(pairing.teamA[0], pairing.teamA[1])) || 0) +
+          (counts.get(partnerKey(pairing.teamB[0], pairing.teamB[1])) || 0)) *
+        100;
       if (unusual && rankedIds) {
         score += classicPartnerPenalty(pairing, rankedIds) * 8;
       }
@@ -242,7 +147,7 @@ function winnersLosers(match, settings, kind) {
   return { winners: match.teamA, losers: match.teamB };
 }
 
-/** Победители вверх, проигравшие вниз. */
+/** Старое движение «оба победителя вверх» — для свободного режима. */
 export function kingOfTheCourtGroups(matches, settings, kind) {
   const ordered = matches.slice().sort((a, b) => a.court - b.court);
   const wl = ordered.map((m) => winnersLosers(m, settings, kind));
@@ -271,15 +176,7 @@ function matchesFromCourtGroups(groups, playersById, counts, mixed, rng) {
   });
 }
 
-export function generateRound({
-  players,
-  settings,
-  standings = [],
-  rounds = [],
-  kind = 'regular',
-  courtGroups = null,
-  rng = Math.random,
-}) {
+function assertRoster(players, settings) {
   const courts = Number(settings.courts) || 2;
   const need = expectedPlayerCount(courts);
   if (players.length !== need) {
@@ -296,21 +193,20 @@ export function generateRound({
       throw new Error(`Для смешанных пар нужно поровну М и Ж (сейчас ${m} и ${f}).`);
     }
   }
-  const playersById = new Map(players.map((p) => [p.id, p]));
+}
+
+function freeRound({ players, settings, standings, rounds, courtGroups, rng }) {
+  const courts = Number(settings.courts) || 2;
+  const mixed = settings.pairType === 'mixed';
+  const playersById = playersByIdMap(players);
   const counts = partnerCounts(rounds);
   const ranked = rankPlayers(players, standings);
-
-  if (kind === 'qualifying') {
-    return { matches: qualifyingMatches(players, courts, mixed, playersById, rng), warning: '' };
-  }
-
   if (settings.kingOfTheCourt && courtGroups?.length === courts) {
     return {
       matches: matchesFromCourtGroups(courtGroups, playersById, counts, mixed, rng),
       warning: '',
     };
   }
-
   if (settings.pairMethod === 'ranking') {
     const pairs = rankingPartnerPairs(ranked, mixed);
     const matches = pairsToMatches(pairs);
@@ -320,7 +216,6 @@ export function generateRound({
     }
     return { matches, warning };
   }
-
   const matches = randomMatches(
     players,
     courts,
@@ -335,9 +230,65 @@ export function generateRound({
   return { matches, warning: '' };
 }
 
-export function formatMatchLine(match, playersById) {
-  const name = (id) => playersById.get(id)?.name || id;
-  const a = `${name(match.teamA[0])} / ${name(match.teamA[1])}`;
-  const b = `${name(match.teamB[0])} / ${name(match.teamB[1])}`;
-  return `Корт ${match.court}: ${a} — ${b}`;
+function overrideRound({ players, settings, standings, rounds, method, rankMode, rng }) {
+  const courts = Number(settings.courts) || 2;
+  const playersById = playersByIdMap(players);
+  const counts = partnerCounts(rounds);
+  const ranked = rankPlayers(players, standings, method === 'ranking' ? rankMode || 'points' : 'delta');
+  if (method === 'ranking') {
+    const pairs = rankingPartnerPairs(ranked, false);
+    return { matches: pairsToMatches(pairs), warning: '', override: true };
+  }
+  if (method === 'mixed') {
+    const matches = randomMatches(players, courts, true, counts, playersById, rng, true, ranked.map((p) => p.id));
+    if (!matches) throw new Error('Не удалось собрать смешанные пары.');
+    return { matches, warning: '', override: true };
+  }
+  const matches = randomMatches(players, courts, false, counts, playersById, rng, true, ranked.map((p) => p.id));
+  if (!matches) throw new Error('Не удалось сгенерировать пары.');
+  return { matches, warning: '', override: true };
+}
+
+export function generateRound({
+  players,
+  settings,
+  standings = [],
+  rounds = [],
+  kind = 'regular',
+  courtGroups = null,
+  method = null,
+  rankMode = 'points',
+  rng = Math.random,
+}) {
+  assertRoster(players, settings);
+  const mixed = settings.pairType === 'mixed';
+  const playersById = playersByIdMap(players);
+
+  if (kind === 'qualifying') {
+    const courts = Number(settings.courts) || 2;
+    return {
+      matches: qualifyingMatches(players, courts, mixed, playersById, rng),
+      warning: '',
+      format: 'qualifying',
+    };
+  }
+
+  if (method === 'ranking' || method === 'random' || method === 'mixed') {
+    return overrideRound({ players, settings, standings, rounds, method, rankMode, rng });
+  }
+
+  const format = settings.tournamentFormat || 'free';
+  if (format && format !== 'free') {
+    const result = nextFormatRound({
+      players,
+      settings,
+      standings,
+      rounds,
+      courtGroups,
+      rng,
+    });
+    if (result) return result;
+  }
+
+  return freeRound({ players, settings, standings, rounds, courtGroups, rng });
 }

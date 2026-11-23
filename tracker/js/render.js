@@ -9,6 +9,7 @@ import {
 } from './scoring.js';
 import { computeStandings, sortStandings } from './standings.js';
 import { expectedPlayerCount, formatMatchLine } from './pairing.js';
+import { FORMAT_OPTIONS, formatTitle } from './formats.js';
 import { ensureMatchGames } from './state.js';
 
 export function esc(value) {
@@ -112,23 +113,31 @@ function renderPlay(state) {
   const last = state.rounds[state.rounds.length - 1];
   const lastDone = last && last.matches.every((m) => matchComplete(m, state.settings, last.kind));
   const canQual = state.settings.qualifyingEnabled && !state.rounds.some((r) => r.kind === 'qualifying');
+  const format = state.settings.tournamentFormat || 'free';
+  const nextLabel =
+    format === 'king'
+      ? 'Сдвиг короля'
+      : format === 'escalera'
+        ? 'Смена кортов'
+        : format === 'mexicano'
+          ? 'Следующий круг по таблице'
+          : last
+            ? 'Следующий круг'
+            : 'Сгенерировать пары';
   const actions = [];
-  if (!last || lastDone) {
-    if (canQual) {
-      actions.push(
-        `<button type="button" class="btn btn-primary" data-action="gen-round" data-kind="qualifying">Начать квалификацию</button>`,
-      );
-    }
+  if (canQual && (!last || lastDone)) {
     actions.push(
-      `<button type="button" class="btn ${canQual ? 'btn-ghost' : 'btn-primary'}" data-action="gen-round" data-kind="regular">${
-        last ? 'Следующий круг' : 'Сгенерировать пары'
-      }</button>`,
-    );
-  } else if (last && !last.matches.some((m) => (m.games || []).some(isGameComplete))) {
-    actions.push(
-      `<button type="button" class="btn btn-ghost" data-action="regen-round">Перегенерировать пары</button>`,
+      `<button type="button" class="btn btn-primary" data-action="gen-round" data-kind="qualifying">Начать квалификацию</button>`,
     );
   }
+  if (!last || lastDone) {
+    actions.push(
+      `<button type="button" class="btn ${canQual && !last ? 'btn-ghost' : 'btn-primary'}" data-action="gen-round" data-kind="regular">${nextLabel}</button>`,
+    );
+  }
+  actions.push(
+    `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-new-pairs">Новые пары</button>`,
+  );
 
   const history = state.rounds
     .map((round, index) => renderRound(state, round, index, playersById, index === state.rounds.length - 1))
@@ -139,18 +148,52 @@ function renderPlay(state) {
     <section class="stack">
       <div class="card">
         <h2>Круги</h2>
-        <p class="hint">Пара играет ${state.settings.gamesPerPairing} ${ruGames(state.settings.gamesPerPairing)} подряд, очки суммируются, затем напарники меняются.</p>
+        <p class="hint">${esc(formatTitle(format))} · пара играет ${state.settings.gamesPerPairing} ${ruGames(state.settings.gamesPerPairing)} по правилам счёта.</p>
         <div class="actions">${actions.join('')}</div>
       </div>
+      ${state.ui.newPairsOpen ? renderNewPairsPanel(state, last, lastDone) : ''}
       ${history || '<div class="card"><p class="hint">Кругов ещё нет.</p></div>'}
     </section>
+  `;
+}
+
+function renderNewPairsPanel(state, last, lastDone) {
+  const hasScores = last && last.matches.some((m) => (m.games || []).some(isGameComplete));
+  const partial = last && !lastDone && hasScores;
+  return `
+    <div class="card sheet" id="new-pairs">
+      <h2>Новые пары</h2>
+      <p class="hint">Сгенерировать раскладку прямо сейчас, не заходя в настройки. Формат турнира не меняется — разовый круг. «1+последний» берёт порядок с вкладки «Таблица» (очки или Δ).</p>
+      ${
+        partial
+          ? `<div class="callout">
+              <p>В круге уже есть счета, но не все матчи доиграны.</p>
+              <p class="hint">По умолчанию сыгранные игры останутся в таблице, незаполненные не считаются, и начнётся новый круг для всех.</p>
+              <label class="toggle">
+                <input type="checkbox" data-action="toggle-ui" data-key="discardUnfinished" ${state.ui.discardUnfinished ? 'checked' : ''} />
+                <span>Удалить этот круг целиком (забыть и сыгранное)</span>
+              </label>
+            </div>`
+          : last && !lastDone
+            ? '<p class="hint">Текущий круг без счетов заменится новой раскладкой.</p>'
+            : '<p class="hint">Добавится новый круг с выбранным способом пар.</p>'
+      }
+      <div class="actions">
+        <button type="button" class="btn btn-primary" data-action="new-pairs" data-method="ranking">По таблице: 1+последний</button>
+        <button type="button" class="btn btn-ghost" data-action="new-pairs" data-method="random">Случайно, любые</button>
+        <button type="button" class="btn btn-ghost" data-action="new-pairs" data-method="mixed">Случайно, только М+Ж</button>
+        <button type="button" class="btn btn-ghost" data-action="close-new-pairs">Отмена</button>
+      </div>
+    </div>
   `;
 }
 
 function roundTitle(round, index) {
   if (round.kind === 'qualifying') return 'Квалификация';
   const n = round.number || index;
-  return `Круг ${n}`;
+  const fmt = round.format && round.format !== 'free' && round.format !== 'qualifying' ? ` · ${formatTitle(round.format)}` : '';
+  const early = round.closedEarly ? ' · закрыт досрочно' : '';
+  return `Круг ${n}${fmt}${early}`;
 }
 
 function renderRound(state, round, index, playersById, isCurrent) {
@@ -167,6 +210,7 @@ function renderRound(state, round, index, playersById, isCurrent) {
   return `
     <article class="card round ${isCurrent ? 'is-current' : ''}">
       <h3>${esc(roundTitle(round, index))}</h3>
+      ${round.note ? `<p class="move-note">${esc(round.note)}</p>` : ''}
       <div class="court-lines">${lines}</div>
       ${cards}
     </article>
@@ -202,7 +246,7 @@ function renderMatch(state, round, roundIndex, match, playersById, isCurrent) {
   return `
     <div class="match">
       <div class="match-head">
-        <span class="badge">Корт ${match.court}</span>
+        <span class="badge">Корт ${match.court}${match.sequence ? ` · смена ${match.sequence}` : ''}</span>
         ${isGameComplete({ a: sum.a, b: sum.b }) && games.some(isGameComplete) ? `<span class="sum">${sum.a} — ${sum.b}</span>` : ''}
       </div>
       <div class="teams">
@@ -335,8 +379,29 @@ function renderTable(state) {
 function renderSettings(state) {
   const s = state.settings;
   const pointsMode = s.scoringMode === 'points';
+  const format = s.tournamentFormat || 'free';
+  const formatCards = FORMAT_OPTIONS.map(
+    (f) => `
+      <button type="button" class="format-opt ${format === f.id ? 'is-on' : ''}" data-action="setting-val" data-key="tournamentFormat" data-value="${f.id}">
+        <strong>${esc(f.title)}</strong>
+        <span>${esc(f.hint)}</span>
+      </button>`,
+  ).join('');
   return `
     <section class="stack">
+      <div class="card">
+        <h2>Формат турнира</h2>
+        <div class="format-list">${formatCards}</div>
+        ${
+          format === 'mexicano'
+            ? `<p class="field-label">Пары внутри четвёрки</p>
+        <div class="seg">
+          <button type="button" class="seg-btn ${s.mexicanoPairing !== '1-3' ? 'is-on' : ''}" data-action="setting-val" data-key="mexicanoPairing" data-value="1-4">1+4 против 2+3</button>
+          <button type="button" class="seg-btn ${s.mexicanoPairing === '1-3' ? 'is-on' : ''}" data-action="setting-val" data-key="mexicanoPairing" data-value="1-3">1+3 против 2+4</button>
+        </div>`
+            : ''
+        }
+      </div>
       <div class="card">
         <h2>Счёт</h2>
         <label class="field">Режим
@@ -390,20 +455,28 @@ function renderSettings(state) {
           <button type="button" class="seg-btn ${s.pairType === 'mixed' ? 'is-on' : ''}" data-action="setting-val" data-key="pairType" data-value="mixed">Только М+Ж</button>
           <button type="button" class="seg-btn ${s.pairType === 'any' ? 'is-on' : ''}" data-action="setting-val" data-key="pairType" data-value="any">Любые</button>
         </div>
-        <p class="field-label">Как мешать</p>
+        ${
+          format === 'free'
+            ? `<p class="field-label">Как мешать</p>
         <div class="seg">
           <button type="button" class="seg-btn ${s.pairMethod === 'ranking' ? 'is-on' : ''}" data-action="setting-val" data-key="pairMethod" data-value="ranking">1+последний</button>
           <button type="button" class="seg-btn ${s.pairMethod === 'random' ? 'is-on' : ''}" data-action="setting-val" data-key="pairMethod" data-value="random">Случайно</button>
-        </div>
+        </div>`
+            : '<p class="hint">Способ пар задаёт формат. Разово сменить можно кнопкой «Новые пары» на вкладке «Игры».</p>'
+        }
         <p class="field-label">Корты</p>
         <div class="seg">
           <button type="button" class="seg-btn ${s.courts === 2 ? 'is-on' : ''}" data-action="courts" data-n="2">2 корта · 8</button>
           <button type="button" class="seg-btn ${s.courts === 3 ? 'is-on' : ''}" data-action="courts" data-n="3">3 корта · 12</button>
         </div>
-        <label class="toggle">
+        ${
+          format === 'free'
+            ? `<label class="toggle">
           <input type="checkbox" data-action="toggle" data-key="kingOfTheCourt" ${s.kingOfTheCourt ? 'checked' : ''} />
-          <span>Король корта: победители вверх, проигравшие вниз</span>
-        </label>
+          <span>Свободный кинг: оба победителя вверх, оба проигравших вниз</span>
+        </label>`
+            : ''
+        }
       </div>
       <div class="card danger-card">
         <h2>Данные</h2>
