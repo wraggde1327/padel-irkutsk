@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.8 — iOS PWA: оболочка до физического низа, шапка ниже статус-бара
+
+- Причина серой полосы снизу: `html/body` и `#app` были `position: fixed; inset: 0` без `height: 100%` / `-webkit-fill-available`, фон `body` — `--bg` (#f4f4f5). В standalone оболочка короче экрана, снизу виден серый html/body (~35pt, home indicator).
+- Причина белой полосы под вкладками: `.tabs { padding: 8px 12px 0 }` плюс внутренние 4px у `.tabs-track` — лишний воздух вокруг пилюль (~20pt), не inset.
+- Сейчас: `html, body { height: 100%; -webkit-fill-available; background: var(--card) }` (белый как вкладки). `#app { position:fixed; top/left/right/bottom:0; height:100%; -webkit-fill-available }`. Вкладки: ряд 50px, `padding-bottom: max(env(safe-area-inset-bottom), 8px)`, без 8px сверху.
+- Шапка: `padding-top: calc(12px + env(safe-area-inset-top))` на `.top`. В standalone, если env()=0: `max(env, 47px)`.
+
 ## 0.7.7 — крутилка как раньше, геймы до N, без табло, без горизонтального свайпа
 
 - Крутилка снова нативный scroll-snap 3×44px (отзывчивость как до 0.7.5), зацикливание 0…max осталось.
