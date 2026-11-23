@@ -371,7 +371,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.9');
+  assert.equal(sw.version, '0.7.10');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -386,10 +386,12 @@ async function main() {
   assert.match(cssText, /47px/);
   assert.match(cssText, /-webkit-fill-available/);
   assert.doesNotMatch(cssText, /max\(var\(--safe-bottom\)/);
-  assert.match(cssText, /padding-bottom:\s*calc\(\s*var\(--safe-bottom\)\s*\*\s*0\.5\s*\)/);
+  assert.doesNotMatch(cssText, /var\(--safe-bottom\)\s*\*\s*0\.5/);
+  assert.match(cssText, /\.tabs\s*\{[^}]*padding-bottom:\s*var\(--safe-bottom\)/s);
   assert.match(cssText, /--chrome-top/);
   assert.match(cssText, /--chrome-bottom/);
   assert.doesNotMatch(cssText, /\.tabs-track/);
+  assert.doesNotMatch(cssText, /\.tabs::before/);
   const shell = await page.evaluate(() => {
     const app = document.getElementById('app');
     const cs = getComputedStyle(app);
@@ -472,7 +474,7 @@ async function main() {
     const main = document.getElementById('main');
     const ts = tabs ? getComputedStyle(tabs) : null;
     const tabCs = tab ? getComputedStyle(tab) : null;
-    const bar = tabs ? getComputedStyle(tabs, '::before') : null;
+    const topCs = getComputedStyle(top);
     const appBox = app.getBoundingClientRect();
     const tabsBox = tabs.getBoundingClientRect();
     const mainBox = main.getBoundingClientRect();
@@ -484,13 +486,15 @@ async function main() {
       tabsPadTop: ts?.paddingTop,
       tabsPadLeft: ts?.paddingLeft,
       tabsBg: ts?.backgroundColor,
-      barBg: bar?.backgroundColor,
+      topBg: topCs.backgroundColor,
+      appBg: getComputedStyle(app).backgroundColor,
+      hasPicker: Boolean(document.querySelector('.picker-backdrop')),
       tabH: tab ? tab.getBoundingClientRect().height : 0,
       tabOnBg: tabCs?.backgroundColor,
       tabOnColor: tabCs?.color,
       tabRadius: tabCs?.borderRadius,
       tabPos: ts?.position,
-      topPos: getComputedStyle(top).position,
+      topPos: topCs.position,
       mainPos: getComputedStyle(main).position,
       hasTrack: Boolean(document.querySelector('.tabs-track')),
       hasTournamentEyebrow: Boolean(document.querySelector('.top .eyebrow')),
@@ -536,8 +540,10 @@ async function main() {
   assert.equal(chrome.hasIcon, true);
   assert.ok(Math.abs(chrome.iconH - 24) < 1, `icon height ${chrome.iconH}`);
   assert.ok(chrome.tabH >= 48 && chrome.tabH <= 50, `tab height ${chrome.tabH}`);
-  assert.equal(chrome.tabsBg, 'rgba(0, 0, 0, 0)');
-  assert.equal(chrome.barBg, 'rgb(255, 255, 255)');
+  assert.equal(chrome.tabsBg, 'rgb(244, 244, 245)');
+  assert.equal(chrome.topBg, 'rgb(244, 244, 245)');
+  assert.equal(chrome.appBg, 'rgb(244, 244, 245)');
+  assert.equal(chrome.hasPicker, false);
   assert.equal(chrome.tabOnBg, 'rgba(0, 0, 0, 0)');
   assert.equal(chrome.tabOnColor, 'rgb(63, 63, 70)');
   assert.equal(chrome.tabRadius, '0px');
@@ -589,7 +595,7 @@ async function main() {
     const chromeBot = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-bottom')) || 0;
     return (
       Math.abs(topPad - (16 + inset.top)) < 1 &&
-      Math.abs(tabsPad - inset.bottom * 0.5) < 1 &&
+      Math.abs(tabsPad - inset.bottom) < 1 &&
       Math.abs(chromeTop - top.getBoundingClientRect().height) <= 1 &&
       Math.abs(chromeBot - tabs.getBoundingClientRect().height) <= 1
     );
@@ -609,15 +615,16 @@ async function main() {
     const html = getComputedStyle(document.documentElement);
     const body = getComputedStyle(document.body);
     const appCs = getComputedStyle(app);
-    const bar = getComputedStyle(tabs, '::before');
+    const topCs = getComputedStyle(top);
     return {
-      topPad: parseFloat(getComputedStyle(top).paddingTop),
+      topPad: parseFloat(topCs.paddingTop),
       tabsPadBottom: parseFloat(getComputedStyle(tabs).paddingBottom),
       tabsPadTop: parseFloat(getComputedStyle(tabs).paddingTop),
       htmlPadBottom: html.paddingBottom,
       bodyPadBottom: body.paddingBottom,
       appPadBottom: appCs.paddingBottom,
       hasEyebrow: Boolean(eye),
+      hasPicker: Boolean(document.querySelector('.picker-backdrop')),
       h1Top: h1.getBoundingClientRect().top,
       labelBottom: label ? label.getBoundingClientRect().bottom : 0,
       appTop: appBox.top,
@@ -626,7 +633,7 @@ async function main() {
       mainTop: mainBox.top,
       mainBottom: mainBox.bottom,
       tabsBg: getComputedStyle(tabs).backgroundColor,
-      barBg: bar.backgroundColor,
+      topBg: topCs.backgroundColor,
       bodyBg: body.backgroundColor,
       appBg: appCs.backgroundColor,
       topH: topBox.height,
@@ -643,7 +650,7 @@ async function main() {
   assert.equal(safeChrome.hasEyebrow, false);
   assert.ok(safeChrome.h1Top >= IPHONE_SAFE_TOP + 16, `title under status bar at ${safeChrome.h1Top}`);
   assert.ok(
-    Math.abs(safeChrome.tabsPadBottom - IPHONE_SAFE_BOTTOM * 0.5) < 1,
+    Math.abs(safeChrome.tabsPadBottom - IPHONE_SAFE_BOTTOM) < 1,
     `tabs pad ${safeChrome.tabsPadBottom}`,
   );
   assert.equal(safeChrome.tabsPadTop, 0);
@@ -652,8 +659,9 @@ async function main() {
   assert.equal(safeChrome.appPadBottom, '0px');
   assert.equal(safeChrome.bodyBg, 'rgb(244, 244, 245)');
   assert.equal(safeChrome.appBg, 'rgb(244, 244, 245)');
-  assert.equal(safeChrome.tabsBg, 'rgba(0, 0, 0, 0)');
-  assert.equal(safeChrome.barBg, 'rgb(255, 255, 255)');
+  assert.equal(safeChrome.topBg, 'rgb(244, 244, 245)');
+  assert.equal(safeChrome.tabsBg, 'rgb(244, 244, 245)');
+  assert.equal(safeChrome.hasPicker, false);
   assert.equal(safeChrome.appTop, 0);
   assert.equal(safeChrome.appBottom, safeChrome.vh);
   assert.equal(safeChrome.tabsBottom, safeChrome.vh);
@@ -661,7 +669,7 @@ async function main() {
   assert.equal(safeChrome.mainBottom, safeChrome.vh);
   assert.ok(Math.abs(safeChrome.mainPadTop - safeChrome.topH) <= 1, `main pad-top ${safeChrome.mainPadTop}`);
   assert.ok(Math.abs(safeChrome.mainPadBottom - safeChrome.tabsH) <= 1, `main pad-bottom ${safeChrome.mainPadBottom}`);
-  const labelExpected = safeChrome.vh - IPHONE_SAFE_BOTTOM * 0.5 - 4;
+  const labelExpected = safeChrome.vh - IPHONE_SAFE_BOTTOM - 4;
   assert.ok(
     Math.abs(safeChrome.labelBottom - labelExpected) <= 2,
     `tab label bottom ${safeChrome.labelBottom}, expected ~${labelExpected}`,
