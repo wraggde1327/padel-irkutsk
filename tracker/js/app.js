@@ -37,13 +37,14 @@ let scrollAfterPaint = null;
 let lastPaintKey = '';
 let chromeObserver = null;
 
+function pageScroller() {
+  return document.scrollingElement || document.documentElement;
+}
+
 function syncChromeInsets() {
   if (!root) return;
-  const header = root.querySelector('.top');
   const tabs = root.querySelector('.tabs');
-  const topH = header ? Math.round(header.getBoundingClientRect().height) : 0;
   const botH = tabs ? Math.round(tabs.getBoundingClientRect().height) : 0;
-  root.style.setProperty('--chrome-top', `${topH}px`);
   root.style.setProperty('--chrome-bottom', `${botH}px`);
 }
 
@@ -54,9 +55,7 @@ function watchChromeInsets() {
     chromeObserver = new ResizeObserver(() => syncChromeInsets());
   }
   chromeObserver.disconnect();
-  const header = root.querySelector('.top');
   const tabs = root.querySelector('.tabs');
-  if (header) chromeObserver.observe(header);
   if (tabs) chromeObserver.observe(tabs);
 }
 
@@ -66,8 +65,7 @@ function paintContextKey() {
 
 function restoreMainScroll(top) {
   const apply = () => {
-    const scroller = document.getElementById('main');
-    if (scroller) scroller.scrollTop = top;
+    pageScroller().scrollTop = top;
   };
   apply();
   requestAnimationFrame(() => {
@@ -104,7 +102,7 @@ function toast(message) {
 }
 
 function paint() {
-  const scroller = document.getElementById('main');
+  const scroller = pageScroller();
   const paintKey = paintContextKey();
   const keepScroll = Boolean(scroller && paintKey === lastPaintKey && !scrollAfterPaint);
   const savedScroll = keepScroll ? scroller.scrollTop : 0;
@@ -159,10 +157,9 @@ function scrollToPaintTarget() {
   if (!target) return;
   requestAnimationFrame(() => {
     const el = document.getElementById(target);
-    const scroller = document.getElementById('main');
-    if (!el || !scroller) return;
-    const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 8;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   });
 }
 
