@@ -58,6 +58,7 @@ export function emptyUi() {
     rebuildOffer: null,
     draft: null,
     importAsk: null,
+    backupOpen: false,
     confirmDeleteId: null,
     renameId: null,
     expandedRoundIds: [],
@@ -179,6 +180,7 @@ export function migrate(raw) {
     ui.newPairsOpen = false;
     ui.rebuildOffer = null;
     ui.importAsk = null;
+    ui.backupOpen = false;
     ui.draft = ui.draft && typeof ui.draft === 'object' ? ui.draft : null;
     if (!['home', 'create-format', 'create-settings', 'tournament'].includes(ui.screen)) {
       ui.screen = ui.activeId ? 'tournament' : 'home';
@@ -235,6 +237,7 @@ export function saveState(state, storage = globalThis.localStorage) {
   if (copy.ui) {
     copy.ui.toast = '';
     copy.ui.importAsk = null;
+    copy.ui.backupOpen = false;
     copy.ui.expandedRoundIds = [];
     copy.ui.scorePicker = null;
   }

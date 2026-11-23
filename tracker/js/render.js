@@ -117,7 +117,8 @@ function formatDate(iso) {
   }
 }
 
-const SETTINGS_GEAR = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.77 8.87a.5.5 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06-.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.14.24.4.34.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.06.24.26.42.5.42h3.8a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.12-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`;
+const SETTINGS_GEAR = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.77 8.87a.5.5 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06-.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12-.61l1.92 3.32c.14.24.4.34.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.06.24.26.42.5.42h3.8a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.12-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`;
+const BACKUP_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>`;
 
 export function renderApp(root, store) {
   const screen = store.ui.screen || 'home';
@@ -128,6 +129,7 @@ export function renderApp(root, store) {
     ${renderHeader(store, tournament, screen)}
     ${store.ui.toast ? `<div class="toast" role="status">${esc(store.ui.toast)}</div>` : ''}
     ${store.ui.importAsk ? renderImportAsk(store) : ''}
+    ${store.ui.backupOpen ? renderBackupSheet(store) : ''}
     <main class="main" id="main">${renderScreen(store, tournament, screen, tab)}</main>
     ${
       inTournament
@@ -144,11 +146,12 @@ export function renderApp(root, store) {
 
 function renderHeader(store, tournament, screen) {
   if (screen === 'home') {
-    return `<header class="top">
-      <div>
+    return `<header class="top top-row">
+      <div class="top-title">
         <p class="eyebrow">Падел · мини-турнир</p>
         <h1>Турниры</h1>
       </div>
+      <button type="button" class="icon-btn backup-btn" data-action="open-backup" id="btn-backup" aria-label="Резервная копия">${BACKUP_ICON}</button>
     </header>`;
   }
   if (screen === 'create-format' || screen === 'create-settings') {
@@ -227,18 +230,25 @@ function renderHome(store) {
         <ul class="home-list">${items || '<li class="empty">Пока нет турниров</li>'}</ul>
         <button type="button" class="btn btn-primary" id="btn-create" data-action="create" style="width:100%;margin-top:12px">Создать</button>
       </div>
-      <div class="card">
-        <h2>Файл</h2>
+    </section>
+  `;
+}
+
+function renderBackupSheet(store) {
+  return `
+    <div class="backup-backdrop" data-backup-backdrop>
+      <div class="backup-sheet" id="backup-sheet" data-backup-sheet role="dialog" aria-modal="true" aria-labelledby="backup-title">
+        <h2 id="backup-title">Резервная копия</h2>
         <p class="hint">Скачайте JSON на телефон или восстановите из файла. Ничего не перезаписывается само.</p>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-action="export-all" ${
             store.tournaments.length ? '' : 'disabled'
           }>Экспорт всех</button>
           <button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>
+          <button type="button" class="btn btn-ghost" data-action="close-backup">Закрыть</button>
         </div>
       </div>
-    </section>
-  `;
+    </div>`;
 }
 
 function renderImportAsk(store) {
