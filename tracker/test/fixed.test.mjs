@@ -201,8 +201,9 @@ test('migrate adds pairLock and skips wizard if rounds exist', () => {
     }),
   );
   const loaded = loadState(storage);
-  assert.equal(loaded.settings.pairLock, 'locked');
-  assert.equal(loaded.settings.standingsSort, 'points');
-  assert.equal(loaded.settings.setupDone, true);
-  assert.equal(loaded.settings.lockedMatchups, 'strength');
+  const settings = loaded.tournaments[0].settings;
+  assert.equal(settings.pairLock, 'locked');
+  assert.equal(settings.standingsSort, 'points');
+  assert.equal(settings.setupDone, true);
+  assert.equal(settings.lockedMatchups, 'strength');
 });

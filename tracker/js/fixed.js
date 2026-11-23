@@ -3,12 +3,15 @@
 import { shuffle } from './rng.js';
 import { rankPlayers, standingOf } from './standings.js';
 import {
+  autoCourts,
   emptyMatch,
   genderCounts,
   partnerCounts,
   partnerKey,
   playersByIdMap,
   rankingPartnerPairs,
+  sittingNote,
+  splitSitters,
 } from './pairs.js';
 
 export const PAIR_CHANGE_METHODS = [
@@ -263,20 +266,59 @@ export function nextFreeRound({
   method = null,
   rng = Math.random,
 }) {
+  const roundIndex = rounds.filter((r) => r.kind === 'regular').length;
+  const { sitting, playingPlayers } = splitSitters(players, roundIndex);
+  const pool = playingPlayers.length >= 4 ? playingPlayers : players;
+  const sit = pool === players ? [] : sitting;
   const locked = (settings.pairLock || 'locked') === 'locked';
   const change = Boolean(method);
   let pairs;
   if (change) {
-    pairs = formPairs({ method, players, standings, rounds, settings, rng });
+    pairs = formPairs({ method, players: pool, standings, rounds, settings, rng });
   } else if (!locked || !fixedPairs?.length) {
     const auto = settings.pairType === 'mixed' ? 'ranking-mixed' : 'ranking';
     try {
-      pairs = formPairs({ method: auto, players, standings, rounds, settings, rng });
+      pairs = formPairs({ method: auto, players: pool, standings, rounds, settings, rng });
     } catch {
-      pairs = formPairs({ method: 'ranking', players, standings, rounds, settings, rng });
+      pairs = formPairs({ method: 'ranking', players: pool, standings, rounds, settings, rng });
     }
   } else {
-    pairs = idsToPlayerPairs(fixedPairs, players);
+    const playSet = new Set(pool.map((p) => p.id));
+    const kept = idsToPlayerPairs(fixedPairs, players).filter((pair) =>
+      pair.every((p) => playSet.has(p.id)),
+    );
+    const used = new Set(kept.flatMap((pair) => pair.map((p) => p.id)));
+    const leftovers = pool.filter((p) => !used.has(p.id));
+    let extra = [];
+    if (leftovers.length >= 2) {
+      try {
+        extra = formPairs({
+          method: settings.pairType === 'mixed' ? 'ranking-mixed' : 'ranking',
+          players: leftovers,
+          standings,
+          rounds,
+          settings,
+          rng,
+        });
+      } catch {
+        extra = formPairs({
+          method: 'ranking',
+          players: leftovers,
+          standings,
+          rounds,
+          settings,
+          rng,
+        });
+      }
+    }
+    pairs = kept.concat(extra);
+  }
+  if (pairs.length < 2) {
+    throw new Error('Нужно минимум 4 игрока на корте.');
+  }
+  const courts = autoCourts(pool.length);
+  if (pairs.length > courts * 2) {
+    pairs = pairs.slice(0, courts * 2);
   }
 
   const idPairs = playerPairsToIds(pairs);
@@ -299,9 +341,12 @@ export function nextFreeRound({
   if (useRr) note = 'Пары закреплены · круговой график соперников.';
   if (change) note = 'Новые закреплённые пары. Соперники с этого круга — по силе.';
   if (!locked && !change) note = 'Пары пересобраны по рейтингу.';
+  const sitLine = sittingNote(sit, players);
+  if (sitLine) note = `${sitLine} · ${note}`;
 
   return {
     matches: result.matches,
+    sitting: sit,
     fixedPairs: idPairs,
     note,
     warning: '',

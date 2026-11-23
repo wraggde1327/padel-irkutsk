@@ -1,40 +1,44 @@
 import { countedGames, gamesSum } from './scoring.js';
 import { rankPlayers } from './standings.js';
 import { shuffle } from './rng.js';
+import { nextFreeRound } from './fixed.js';
 import {
+  autoCourts,
   bestPairingOfFour,
   emptyMatch,
   pairingsOfFour,
   partnerCounts,
   partnerKey,
   playersByIdMap,
+  sittingNote,
+  splitSitters,
 } from './pairs.js';
 
 export const FORMAT_OPTIONS = [
   {
     id: 'free',
-    title: 'Свободный',
-    hint: 'Закреплённые пары играют с ближайшими по силе соперниками, либо каждый круг новые 1+последний.',
+    title: 'Наш / Свободный',
+    hint: 'Закреплённые пары или каждый круг 1+последний. Квалификация до 15/17, таблица по очкам или победам, очки или теннис.',
   },
   {
     id: 'americano',
     title: 'Американо',
-    hint: 'Каждый играет с каждым в напарниках по кругу, очки личные. Если игроков не кратно 4 — лишние сидят круг.',
+    hint: 'Каждый с каждым в напарниках. Матч до суммы очков 16/21/24/32. Лишние сидят по очереди.',
   },
   {
     id: 'mexicano',
     title: 'Мексикано',
-    hint: 'После круга всех сортируют по разнице очков: топ-4 на корт 1, следующие на корт 2 и ниже.',
+    hint: 'После круга группы по Δ: топ-4 на корт 1. Пары 1+4 vs 2+3 или 1+3 vs 2+4. Сумма очков 16–32.',
   },
   {
     id: 'escalera',
     title: 'Эскалера',
-    hint: 'На корте трое: каждый с каждым (AB–CD, AC–BD, AD–BC). Двое лучших вверх, двое худших вниз.',
+    hint: 'На корте три смены пар. Двое лучших вверх, двое худших вниз. Сумма очков 16–32.',
   },
   {
     id: 'king',
     title: 'Кинг',
-    hint: 'После матча лучший из победителей поднимается, слабый из проигравших опускается; на корте снова меняют пары.',
+    hint: 'Лучший из победителей вверх, слабый из проигравших вниз. Сумма очков 16–32.',
   },
 ];
 
@@ -43,7 +47,11 @@ export function formatTitle(id) {
 }
 
 function mixedWanted(settings) {
-  return settings.pairType === 'mixed';
+  return settings.pairType === 'mixed' || settings.formatVariant === 'mixed';
+}
+
+function regularRoundIndex(rounds, format) {
+  return rounds.filter((r) => r.kind === 'regular' && (!format || r.format === format || !r.format)).length;
 }
 
 function pairFour(ids, players, settings, rounds, rng, preferStyle) {
@@ -208,14 +216,16 @@ export function nextAmericanoRound({ players, settings, standings, rounds }) {
 }
 
 export function mexicanoMatches({ players, settings, standings, rounds, rng }) {
-  const ranked = rankPlayers(players, standings, 'delta');
-  const courts = Number(settings.courts) || 2;
+  const roundIndex = regularRoundIndex(rounds, 'mexicano');
+  const { sitting, playingPlayers } = splitSitters(players, roundIndex);
+  const ranked = rankPlayers(playingPlayers, standings, 'delta');
+  const courts = autoCourts(playingPlayers.length);
   const style = settings.mexicanoPairing === '1-3' ? '1-3' : '1-4';
   const hadRegular = rounds.some((r) => r.kind === 'regular');
   const hadQual = rounds.some((r) => r.kind === 'qualifying');
   let ordered = ranked;
   if (!hadRegular && !hadQual) {
-    ordered = shuffle(players.slice(), rng);
+    ordered = shuffle(playingPlayers.slice(), rng);
   }
   const matches = [];
   let warning = '';
@@ -238,18 +248,33 @@ export function mexicanoMatches({ players, settings, standings, rounds, rng }) {
       }
     }
   }
-  return { matches, warning, note: 'Группы по рейтингу Δ, затем победы.' };
+  const sit = sittingNote(sitting, players);
+  return {
+    matches,
+    sitting,
+    warning,
+    note: [sit, 'Группы по рейтингу Δ, затем победы.'].filter(Boolean).join(' · '),
+  };
 }
 
-export function escaleraMatches({ players, settings, standings, rounds, courtGroups, rng }) {
-  const courts = Number(settings.courts) || 2;
-  const ranked = rankPlayers(players, standings, 'delta');
+export function escaleraMatches({ players, settings, standings, rounds, courtGroups, rng, sitting = [] }) {
+  const poolPlayers = sitting.length
+    ? players.filter((p) => !sitting.includes(p.id))
+    : players;
+  const courts = autoCourts(poolPlayers.length);
+  const ranked = rankPlayers(poolPlayers, standings, 'delta');
   const hadQual = rounds.some((r) => r.kind === 'qualifying');
   const hadRegular = rounds.some((r) => r.kind === 'regular' && r.format === 'escalera');
-  let groups = courtGroups;
-  if (!groups || groups.length !== courts) {
+  const playSet = new Set(poolPlayers.map((p) => p.id));
+  const groupsMatch =
+    Array.isArray(courtGroups) &&
+    courtGroups.length === courts &&
+    courtGroups.every((g) => g.length === 4) &&
+    courtGroups.flat().every((id) => playSet.has(id));
+  let groups = groupsMatch ? courtGroups : null;
+  if (!groups) {
     let pool = ranked;
-    if (!hadRegular && !hadQual) pool = shuffle(players.slice(), rng);
+    if (!hadRegular && !hadQual) pool = shuffle(poolPlayers.slice(), rng);
     else if (!hadRegular && hadQual) pool = ranked;
     groups = [];
     const ids = pool.map((p) => p.id);
@@ -268,7 +293,14 @@ export function escaleraMatches({ players, settings, standings, rounds, courtGro
       matches.push(emptyMatch(c + 1, opt.teamA, opt.teamB, { sequence: seq + 1 }));
     });
   });
-  return { matches, warning: '', note: 'На каждом корте 3 смены пар.', courtGroups: groups };
+  const sit = sittingNote(sitting, players);
+  return {
+    matches,
+    sitting,
+    warning: '',
+    note: [sit, 'На каждом корте 3 смены пар.'].filter(Boolean).join(' · '),
+    courtGroups: groups,
+  };
 }
 
 function mixedCourtGroups(players, courts, rng) {
@@ -363,16 +395,19 @@ export function escaleraMove(matches, settings, kind, groups) {
 
 export function nextEscaleraRound(args) {
   const { rounds, settings, players, standings, rng } = args;
+  const roundIndex = regularRoundIndex(rounds, 'escalera');
+  const { sitting } = splitSitters(players, roundIndex);
   const last = [...rounds].reverse().find((r) => r.kind === 'regular' && r.format === 'escalera');
   let courtGroups = null;
   let note = '';
-  if (last?.courtGroups) {
+  const sitSet = new Set(sitting);
+  if (last?.courtGroups && last.courtGroups.flat().every((id) => !sitSet.has(id))) {
     const moved = escaleraMove(last.matches, settings, last.kind, last.courtGroups);
     courtGroups = moved.groups;
     note = describeMovement(moved.movement, players);
   }
-  const result = escaleraMatches({ players, settings, standings, rounds, courtGroups, rng });
-  return { ...result, note: [result.note, note].filter(Boolean).join(' ') };
+  const result = escaleraMatches({ players, settings, standings, rounds, courtGroups, rng, sitting });
+  return { ...result, sitting, note: [result.note, note].filter(Boolean).join(' ') };
 }
 
 function describeMovement(movement, players) {
@@ -462,8 +497,8 @@ function lastPartnerKeysForIds(ids, rounds) {
 }
 
 export function kingMatches({ players, settings, rounds, courtGroups, rng }) {
-  const courts = Number(settings.courts) || 2;
-  const matches = courtGroups.map((ids, i) => {
+  const groups = (courtGroups || []).filter((ids) => ids.length === 4);
+  const matches = groups.map((ids, i) => {
     const lastKeys = lastPartnerKeysForIds(ids, rounds);
     const courtLast = lastPartnersOnCourt(
       rounds.flatMap((r) => r.matches),
@@ -473,34 +508,45 @@ export function kingMatches({ players, settings, rounds, courtGroups, rng }) {
     const pairing = pairAvoidingLast(ids, players, settings, rounds, rng, lastKeys);
     return emptyMatch(i + 1, pairing.teamA, pairing.teamB);
   });
-  if (matches.length !== courts) {
+  if (!matches.length) {
     throw new Error('Для кинга на каждом корте должно быть 4 игрока.');
   }
   return { matches, warning: '' };
 }
 
 export function nextKingRound({ players, settings, standings, rounds, rng }) {
+  const roundIndex = regularRoundIndex(rounds, 'king');
+  const { sitting, playingPlayers } = splitSitters(players, roundIndex);
   const last = [...rounds].reverse().find((r) => r.kind === 'regular');
-  const courts = Number(settings.courts) || 2;
+  const courts = autoCourts(playingPlayers.length);
+  const sitSet = new Set(sitting);
   let groups;
   let note = '';
-  if (last && last.matches.length) {
-    const sourceGroups =
-      last.courtGroups ||
-      Array.from({ length: courts }, (_, c) => {
-        const m = last.matches.find((x) => x.court === c + 1);
-        return m ? [...m.teamA, ...m.teamB] : [];
-      });
+  const lastGroups =
+    last?.courtGroups ||
+    (last?.matches?.length
+      ? Array.from({ length: last.matches.length }, (_, c) => {
+          const m = last.matches.find((x) => x.court === c + 1);
+          return m ? [...m.teamA, ...m.teamB] : [];
+        })
+      : null);
+  const canMove =
+    last &&
+    last.matches.length &&
+    lastGroups &&
+    lastGroups.length === courts &&
+    lastGroups.flat().every((id) => !sitSet.has(id) && playingPlayers.some((p) => p.id === id));
+  if (canMove) {
     const moved = kingMove(last.matches, settings, last.kind, standings, players);
     groups = moved.groups;
     note = kingNote(moved.details, players);
     if (groups.some((g) => g.length !== 4)) {
-      groups = sourceGroups;
+      groups = lastGroups;
       note = 'Не удалось сдвинуть игроков — повтор той же раскладки кортов.';
     }
   } else {
-    const ranked = rankPlayers(players, standings, 'delta');
-    const pool = rounds.some((r) => r.kind === 'qualifying') ? ranked : shuffle(players.slice(), rng);
+    const ranked = rankPlayers(playingPlayers, standings, 'delta');
+    const pool = rounds.some((r) => r.kind === 'qualifying') ? ranked : shuffle(playingPlayers.slice(), rng);
     groups = [];
     if (mixedWanted(settings)) {
       groups = mixedCourtGroups(pool, courts, rng) || [];
@@ -512,7 +558,8 @@ export function nextKingRound({ players, settings, standings, rounds, rng }) {
     }
   }
   const result = kingMatches({ players, settings, rounds, courtGroups: groups, rng });
-  return { ...result, note, courtGroups: groups };
+  const sit = sittingNote(sitting, players);
+  return { ...result, sitting, note: [sit, note].filter(Boolean).join(' · '), courtGroups: groups };
 }
 
 function kingNote(details, players) {
@@ -529,6 +576,15 @@ function kingNote(details, players) {
 
 export function nextFormatRound(args) {
   const format = args.settings.tournamentFormat || 'free';
+  const variant = args.settings.formatVariant || 'classic';
+  if ((format === 'americano' || format === 'mexicano') && variant === 'team') {
+    const lockedMatchups = format === 'mexicano' ? 'strength' : 'roundrobin';
+    const result = nextFreeRound({
+      ...args,
+      settings: { ...args.settings, pairLock: 'locked', lockedMatchups },
+    });
+    return { ...result, format };
+  }
   if (format === 'americano') return { ...nextAmericanoRound(args), format };
   if (format === 'mexicano') return { ...mexicanoMatches(args), format };
   if (format === 'escalera') return { ...nextEscaleraRound(args), format };

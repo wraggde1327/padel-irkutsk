@@ -17,6 +17,7 @@ const MIME = {
 };
 
 const NAMES8 = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
+const NAMES9 = [...NAMES8, 'Кира'];
 const NAMES12 = [...NAMES8, 'Кира', 'Лев', 'Маша', 'Никита'];
 
 async function importPlaywright() {
@@ -82,41 +83,39 @@ async function addPlayers(page, names) {
 }
 
 async function resetApp(page) {
-  await page.click('[data-tab="settings"]');
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.click('[data-action="reset"]');
-  await page.click('[data-tab="players"]');
-  await page.waitForFunction(() => document.querySelectorAll('.player-row').length === 0);
+  await page.evaluate(() => window.padelTracker.reset());
+  await page.waitForSelector('#btn-create');
 }
 
 async function readState(page) {
   return page.evaluate((key) => JSON.parse(localStorage.getItem(key) || 'null'), STORAGE_KEY);
 }
 
-async function configure(page, { courts, format, qualifying = false, pairLock = 'locked', mexicano = null }) {
+function activeOf(store) {
+  return store.tournaments.find((t) => t.id === store.ui.activeId) || null;
+}
+
+async function createViaUi(page, format, name) {
+  await page.click('#btn-create');
+  await page.waitForSelector(`[data-action="pick-format"][data-format="${format}"]`);
+  await page.click(`[data-action="pick-format"][data-format="${format}"]`);
+  await page.waitForSelector('#btn-create-ok');
+  if (name) {
+    await page.fill('[data-action="draft-name"]', name);
+  }
+  await page.click('#btn-create-ok');
+  await page.waitForSelector('#add-name');
+}
+
+async function seedActiveSettings(page, patch) {
   await page.evaluate(
-    ({ courts, format, qualifying, pairLock, mexicano }) => {
-      const key = 'padel-mini-tracker-v1';
-      const state = JSON.parse(localStorage.getItem(key));
-      Object.assign(state.settings, {
-        courts,
-        tournamentFormat: format,
-        qualifyingEnabled: qualifying,
-        gamesPerPairing: 1,
-        winByTwo: false,
-        decidingGame: false,
-        scoringMode: 'points',
-        pointsPreset: 15,
-        pairType: 'any',
-        pairLock,
-        lockedMatchups: 'strength',
-        standingsSort: 'points',
-        setupDone: true,
-        ...(mexicano ? { mexicanoPairing: mexicano } : {}),
-      });
-      localStorage.setItem(key, JSON.stringify(state));
+    ({ key, patch }) => {
+      const store = JSON.parse(localStorage.getItem(key));
+      const t = store.tournaments.find((x) => x.id === store.ui.activeId);
+      Object.assign(t.settings, patch);
+      localStorage.setItem(key, JSON.stringify(store));
     },
-    { courts, format, qualifying, pairLock, mexicano },
+    { key: STORAGE_KEY, patch },
   );
   await page.reload({ waitUntil: 'networkidle' });
 }
@@ -125,14 +124,15 @@ async function fillCurrentRound(page, a = 15, b = 7) {
   const roundIndex = await page.evaluate(
     ({ a, b }) => {
       const key = 'padel-mini-tracker-v1';
-      const state = JSON.parse(localStorage.getItem(key));
-      const roundIndex = state.rounds.length - 1;
-      const last = state.rounds[roundIndex];
-      const n = state.settings.scoringMode === 'games' ? Math.max(1, Number(state.settings.gamesPerPairing) || 1) : 1;
+      const store = JSON.parse(localStorage.getItem(key));
+      const t = store.tournaments.find((x) => x.id === store.ui.activeId);
+      const roundIndex = t.rounds.length - 1;
+      const last = t.rounds[roundIndex];
+      const n = t.settings.scoringMode === 'games' ? Math.max(1, Number(t.settings.gamesPerPairing) || 1) : 1;
       for (const match of last.matches) {
         match.games = Array.from({ length: n }, () => ({ a, b, touched: { a: true, b: true } }));
       }
-      localStorage.setItem(key, JSON.stringify(state));
+      localStorage.setItem(key, JSON.stringify(store));
       return roundIndex;
     },
     { a, b },
@@ -164,7 +164,23 @@ function partnerSet(round) {
 
 async function playFormat(page, { names, courts, format, rounds, screenshot, mexicano, pairLock = 'locked' }) {
   await resetApp(page);
-  await configure(page, { courts, format, qualifying: false, pairLock, mexicano });
+  await createViaUi(page, format, format);
+  await seedActiveSettings(page, {
+    tournamentFormat: format,
+    qualifyingEnabled: false,
+    gamesPerPairing: 1,
+    winByTwo: false,
+    decidingGame: false,
+    scoringMode: format === 'free' ? 'points' : 'total',
+    pointsPreset: 15,
+    totalPoints: 24,
+    pairType: 'any',
+    formatVariant: 'classic',
+    pairLock,
+    lockedMatchups: 'strength',
+    standingsSort: 'points',
+    ...(mexicano ? { mexicanoPairing: mexicano } : {}),
+  });
   await page.click('[data-tab="players"]');
   await addPlayers(page, names);
   await page.click('[data-tab="play"]');
@@ -176,8 +192,9 @@ async function playFormat(page, { names, courts, format, rounds, screenshot, mex
   const courtCounts = [];
   for (let i = 0; i < rounds; i += 1) {
     const roundIndex = await fillCurrentRound(page, 15, 6 + (i % 5));
-    const state = await readState(page);
-    const round = state.rounds[roundIndex];
+    const store = await readState(page);
+    const t = activeOf(store);
+    const round = t.rounds[roundIndex];
     assert.ok(round, `missing round ${roundIndex} for ${format}`);
     assert.equal(round.format, format);
     const byCourt = courtSets(round);
@@ -185,23 +202,29 @@ async function playFormat(page, { names, courts, format, rounds, screenshot, mex
     for (const [, ids] of byCourt) {
       assert.equal(ids.size, 4, `${format} four on a court`);
     }
+    if (names.length % 4 !== 0) {
+      assert.equal((round.sitting || []).length, names.length % 4, `${format} sitters`);
+    }
     courtCounts.push([...byCourt.entries()].sort((a, b) => a[0] - b[0]).map(([, ids]) => [...ids].sort().join(',')));
     if (i < rounds - 1) {
       await page.click('[data-action="gen-round"][data-kind="regular"]');
       await page.waitForFunction(
         (n) => {
           const raw = localStorage.getItem('padel-mini-tracker-v1');
-          return raw && JSON.parse(raw).rounds.length === n;
+          const store = raw && JSON.parse(raw);
+          const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+          return t && t.rounds.length === n;
         },
         roundIndex + 2,
       );
     }
   }
-  const state = await readState(page);
-  assert.equal(state.rounds.length, rounds);
+  const store = await readState(page);
+  const t = activeOf(store);
+  assert.equal(t.rounds.length, rounds);
   if (format === 'americano') {
     const seen = new Set();
-    for (const round of state.rounds) {
+    for (const round of t.rounds) {
       for (const k of partnerSet(round)) {
         assert.equal(seen.has(k), false, `americano repeat ${k}`);
         seen.add(k);
@@ -209,35 +232,35 @@ async function playFormat(page, { names, courts, format, rounds, screenshot, mex
     }
   }
   if (format === 'escalera') {
-    for (const round of state.rounds) {
+    for (const round of t.rounds) {
       assert.equal(round.matches.length, courts * 3);
       assert.ok(round.courtGroups?.length === courts);
     }
-    if (rounds >= 2) {
+    if (rounds >= 2 && names.length % 4 === 0) {
       assert.notDeepEqual(courtCounts[0], courtCounts[1], 'escalera should move players');
     }
   }
-  if (format === 'king' && rounds >= 2) {
+  if (format === 'king' && rounds >= 2 && names.length % 4 === 0) {
     assert.notDeepEqual(courtCounts[0], courtCounts[1], 'king should move a player between courts');
-    const last = state.rounds[state.rounds.length - 1];
+    const last = t.rounds[t.rounds.length - 1];
     assert.ok(last.note && last.note.includes('Корт'), `king note: ${last.note}`);
   }
   if (format === 'mexicano' && rounds >= 2) {
-    const last = state.rounds[state.rounds.length - 1];
+    const last = t.rounds[t.rounds.length - 1];
     assert.equal(last.matches.length, courts);
   }
   if (format === 'free' && pairLock === 'locked' && rounds >= 2) {
-    assert.deepEqual([...partnerSet(state.rounds[0])].sort(), [...partnerSet(state.rounds[1])].sort());
+    assert.deepEqual([...partnerSet(t.rounds[0])].sort(), [...partnerSet(t.rounds[1])].sort());
   }
   if (format === 'free' && pairLock === 'unlocked' && rounds >= 2) {
-    const first = [...partnerSet(state.rounds[0])].sort();
-    const second = [...partnerSet(state.rounds[1])].sort();
+    const first = [...partnerSet(t.rounds[0])].sort();
+    const second = [...partnerSet(t.rounds[1])].sort();
     assert.ok(first.join() !== second.join() || first.length > 0);
   }
   await page.click('[data-tab="table"]');
   await page.waitForSelector('table.standings tbody tr td.name');
   assert.equal(await page.locator('table.standings tbody tr').count(), names.length);
-  return state;
+  return store;
 }
 
 async function main() {
@@ -250,100 +273,108 @@ async function main() {
     deviceScaleFactor: 2,
   });
   await page.goto(url, { waitUntil: 'networkidle' });
-  await page.evaluate(() => localStorage.clear());
-  await page.reload({ waitUntil: 'networkidle' });
+  await resetApp(page);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-home.png'), fullPage: true });
 
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-empty.png'), fullPage: true });
+  await page.click('#btn-create');
+  await page.waitForSelector('[data-action="pick-format"][data-format="americano"]');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-create-format.png'), fullPage: true });
+  await page.click('[data-action="pick-format"][data-format="americano"]');
+  await page.waitForSelector('#btn-create-ok');
+  await page.fill('[data-action="draft-name"]', 'Американо утро');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-create-settings.png'), fullPage: true });
+  await page.click('#btn-create-ok');
+  await page.waitForSelector('#add-name');
+  await addPlayers(page, NAMES8);
+  await page.click('[data-tab="play"]');
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match');
+  let store = await readState(page);
+  assert.equal(store.tournaments.length, 1);
+  assert.equal(activeOf(store).settings.tournamentFormat, 'americano');
+  assert.equal(activeOf(store).rounds[0].matches.length, 2);
 
-  for (const name of NAMES8) {
-    await page.fill('#add-name', name);
-    await page.click('form.add-row button[type="submit"]');
-  }
-  assert.equal(await page.locator('.player-row').count(), 8);
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-players.png'), fullPage: true });
+  await page.click('[data-action="go-home"]');
+  await page.waitForSelector('#btn-create');
+  await createViaUi(page, 'free', 'Наш вечер');
+  await addPlayers(page, NAMES9);
+  store = await readState(page);
+  assert.equal(store.tournaments.length, 2);
 
   await page.click('[data-tab="play"]');
-  await page.waitForSelector('#btn-setup-next, #btn-setup-start');
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-format.png'), fullPage: true });
-  while (await page.locator('#btn-setup-next').count()) {
-    const title = (await page.locator('#main h2').first().textContent()) || '';
-    if (title.includes('Счёт')) {
-      await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-score.png'), fullPage: true });
-    }
-    if (title.includes('Пары')) {
-      await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-lock.png'), fullPage: true });
-    }
-    await page.click('#btn-setup-next');
-  }
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-wizard-qual.png'), fullPage: true });
-  await page.click('#btn-setup-start');
-  await page.waitForSelector('.match, #btn-next-round');
-  if (await page.locator('#btn-next-round').count()) {
-    await page.click('#btn-next-round');
-    await page.waitForSelector('.match');
-  }
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match');
+  store = await readState(page);
+  const free = activeOf(store);
+  assert.equal(free.players.length, 9);
+  assert.equal(free.rounds[0].matches.length, 2);
+  assert.equal((free.rounds[0].sitting || []).length, 1);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-games.png'), fullPage: true });
-  assert.ok(await page.locator('.summary-line').count());
-  assert.ok(await page.locator('#btn-change-pairs').isVisible());
 
-  await typeScore(page, page.locator('#score-r0-c1-g0-a'), '15');
-  await typeScore(page, page.locator('#score-r0-c1-g0-b'), '11');
-  await typeScore(page, page.locator('#score-r0-c2-g0-a'), '15');
-  await typeScore(page, page.locator('#score-r0-c2-g0-b'), '9');
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-qualifying.png'), fullPage: true });
+  await page.reload({ waitUntil: 'networkidle' });
+  store = await readState(page);
+  assert.equal(store.tournaments.length, 2);
+  assert.equal(activeOf(store).players.length, 9);
 
-  await page.click('[data-tab="table"]');
-  await page.waitForSelector('table.standings tbody tr td.name');
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-table.png'), fullPage: true });
-  await page.setViewportSize({ width: 360, height: 800 });
-  await page.screenshot({ path: join(screenshotDir, 'mobile-360-table.png'), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-
-  await page.click('[data-tab="play"]');
-  await page.click('#btn-change-pairs');
-  await page.waitForSelector('#new-pairs');
-  assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking"]').isVisible());
-  assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking-mixed"]').isVisible());
-  assert.ok(await page.locator('[data-action="new-pairs"][data-method="rotate-mixed"]').isVisible());
-  assert.ok(await page.locator('[data-action="new-pairs"][data-method="random"]').isVisible());
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs.png'), fullPage: true });
-
-  await page.click('[data-action="new-pairs"][data-method="random"]');
-  await page.waitForFunction(() => {
-    const raw = localStorage.getItem('padel-mini-tracker-v1');
-    const parsed = raw && JSON.parse(raw);
-    return parsed && parsed.rounds.length >= 1 && parsed.rounds.at(-1).override;
-  });
-  const opened = await readState(page);
-  const openIndex = opened.rounds.length - 1;
-  await page.evaluate((roundIndex) => {
-    const el = document.querySelector(`input.score[data-round="${roundIndex}"][data-side="a"]`);
-    if (!el) throw new Error('no score input');
-    el.value = '12';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }, openIndex);
-  await page.waitForTimeout(280);
-  await page.click('#btn-change-pairs');
-  await page.waitForSelector('.callout');
-  assert.match(await page.locator('#new-pairs .callout').innerText(), /уже есть счета/);
-  await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs-partial.png'), fullPage: true });
-  await page.click('[data-action="new-pairs"][data-method="ranking"]');
-  await page.waitForFunction((n) => {
-    const raw = localStorage.getItem('padel-mini-tracker-v1');
-    return raw && JSON.parse(raw).rounds.length === n;
-  }, opened.rounds.length + 1);
-  const afterPartial = await readState(page);
-  const kept = afterPartial.rounds[afterPartial.rounds.length - 2];
-  assert.equal(kept.closedEarly, true);
-
-  await page.click('[data-tab="settings"]');
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('[data-action="export-one"]');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-formats.png'), fullPage: true });
+
+  const downloads = [];
+  page.on('download', (d) => downloads.push(d));
+  await page.click('[data-action="export-one"]');
+  await page.waitForTimeout(500);
+  assert.ok(downloads.length >= 1, 'export one should trigger download');
+  assert.match(downloads[0].suggestedFilename(), /padel-.*\.json$/);
+
+  await page.click('[data-action="go-home"]');
+  await page.waitForSelector('#btn-create');
+  assert.equal(await page.locator('.home-open').count(), 2);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-home-two.png'), fullPage: true });
+
+  const payload = await page.evaluate((key) => {
+    const store = JSON.parse(localStorage.getItem(key));
+    return JSON.stringify({ app: 'padel-mini-tracker', version: 2, tournaments: store.tournaments });
+  }, STORAGE_KEY);
+
+  await page.click('[data-action="export-all"]');
+  await page.waitForTimeout(400);
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.click('[data-action="delete-tournament"]');
+  await page.waitForFunction(() => document.querySelectorAll('.home-open').length === 1);
+
+  await page.evaluate(
+    ({ json }) => {
+      const dt = new DataTransfer();
+      const file = new File([json], 'padel-turniry-2026-11-23.json', { type: 'application/json' });
+      dt.items.add(file);
+      const input = document.getElementById('import-file');
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+    { json: payload },
+  );
+  await page.waitForSelector('#import-ask');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-import-ask.png'), fullPage: true });
+  await page.click('[data-action="import-add"]');
+  await page.waitForFunction(() => document.querySelectorAll('.home-open').length >= 2);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-home-imported.png'), fullPage: true });
+
+  await page.click('.home-open');
+  await page.waitForSelector('#add-name, .match, #btn-next-round');
+  if (await page.locator('[data-tab="players"]').count()) {
+    await page.click('[data-tab="players"]');
+    await page.waitForSelector('#add-name');
+    await page.screenshot({ path: join(screenshotDir, 'mobile-390-players.png'), fullPage: true });
+  }
 
   const formats = [
     { format: 'free', names: NAMES8, courts: 2, rounds: 3, pairLock: 'locked', screenshot: 'mobile-390-free-locked-8.png' },
     { format: 'free', names: NAMES8, courts: 2, rounds: 3, pairLock: 'unlocked', screenshot: 'mobile-390-free-unlocked-8.png' },
     { format: 'free', names: NAMES12, courts: 3, rounds: 3, pairLock: 'locked', screenshot: 'mobile-390-free-locked-12.png' },
     { format: 'americano', names: NAMES8, courts: 2, rounds: 3, screenshot: 'mobile-390-americano-8.png' },
+    { format: 'americano', names: NAMES9, courts: 2, rounds: 2, screenshot: 'mobile-390-americano-9.png' },
     { format: 'americano', names: NAMES12, courts: 3, rounds: 3, screenshot: 'mobile-390-americano-12.png' },
     {
       format: 'mexicano',
@@ -351,6 +382,14 @@ async function main() {
       courts: 2,
       rounds: 3,
       screenshot: 'mobile-390-mexicano-8.png',
+      mexicano: '1-4',
+    },
+    {
+      format: 'mexicano',
+      names: NAMES9,
+      courts: 2,
+      rounds: 2,
+      screenshot: 'mobile-390-mexicano-9.png',
       mexicano: '1-4',
     },
     {
@@ -370,17 +409,59 @@ async function main() {
     await playFormat(page, spec);
   }
 
+  await resetApp(page);
+  await createViaUi(page, 'free', 'Смена пар');
+  await addPlayers(page, NAMES8);
+  await page.click('[data-tab="play"]');
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match');
+  await page.click('#btn-change-pairs');
+  await page.waitForSelector('#new-pairs');
+  assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking"]').isVisible());
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs.png'), fullPage: true });
+  await page.click('[data-action="new-pairs"][data-method="random"]');
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('padel-mini-tracker-v1');
+    const store = raw && JSON.parse(raw);
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    return t && t.rounds.length >= 1 && t.rounds.at(-1).override;
+  });
+  const opened = activeOf(await readState(page));
+  const openIndex = opened.rounds.length - 1;
+  await page.evaluate((roundIndex) => {
+    const el = document.querySelector(`input.score[data-round="${roundIndex}"][data-side="a"]`);
+    if (!el) throw new Error('no score input');
+    el.value = '12';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, openIndex);
+  await page.waitForTimeout(280);
+  await page.click('#btn-change-pairs');
+  await page.waitForSelector('.callout');
+  assert.match(await page.locator('#new-pairs .callout').innerText(), /уже есть счета/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs-partial.png'), fullPage: true });
+
+  await typeScore(page, page.locator('#score-r0-c1-g0-a'), '15');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-qualifying.png'), fullPage: true });
+
+  await page.click('[data-tab="table"]');
+  await page.waitForSelector('table.standings tbody tr td.name');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-table.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-table.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+
   await page.emulateMedia({ colorScheme: 'dark' });
   await resetApp(page);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-home-dark.png'), fullPage: true });
+  await createViaUi(page, 'king', 'Кинг ночь');
   await addPlayers(page, NAMES8);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-players-dark.png'), fullPage: true });
-  await configure(page, { courts: 2, format: 'king', qualifying: false });
   await page.click('[data-tab="play"]');
   await page.click('[data-action="gen-round"][data-kind="regular"]');
   await page.waitForSelector('.match');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-king-dark.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
-  await page.click('[data-tab="settings"]');
+  await page.click('[data-action="open-settings"]');
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-settings-dark.png'), fullPage: true });
 
   await browser.close();

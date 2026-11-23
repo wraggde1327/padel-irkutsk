@@ -4,12 +4,22 @@ export const TENNIS_LABELS = ['0', '15', '30', '40'];
 
 export function pointsTarget(settings, roundKind) {
   if (roundKind === 'qualifying') return settings.qualifyingPoints;
+  if (settings.scoringMode === 'total') {
+    return settings.totalPoints === 'custom'
+      ? Number(settings.customTotal) || 24
+      : Number(settings.totalPoints) || 24;
+  }
   if (settings.scoringMode === 'points') {
     return settings.pointsPreset === 'custom'
       ? Number(settings.customPoints) || 15
       : Number(settings.pointsPreset);
   }
   return null;
+}
+
+/** Режим Lunda: матч до суммы очков, без «с разницей в 2». */
+export function usesTotalPoints(settings, roundKind) {
+  return roundKind !== 'qualifying' && settings?.scoringMode === 'total';
 }
 
 /** Игра до фиксированной суммы: второе поле = цель − введённое. При «с разницей в 2» не заполняем. */

@@ -3,6 +3,7 @@ import { countedGames, gamesSum } from './scoring.js';
 import { nextFormatRound } from './formats.js';
 import { nextFreeRound } from './fixed.js';
 import {
+  autoCourts,
   bestPairingOfFour,
   expectedPlayerCount,
   formatMatchLine,
@@ -14,9 +15,12 @@ import {
   playersByIdMap,
   rankingPartnerPairs,
   pairsToMatches,
+  sittingNote,
+  splitSitters,
 } from './pairs.js';
 
 export {
+  autoCourts,
   bestPairingOfFour,
   expectedPlayerCount,
   formatMatchLine,
@@ -26,6 +30,9 @@ export {
   pairingsOfFour,
   rankingPartnerPairs,
   pairsToMatches,
+  rotateSitters,
+  sittingNote,
+  splitSitters,
 } from './pairs.js';
 
 function randomMatches(players, courts, mixed, counts, playersById, rng, unusual, rankedIds) {
@@ -176,17 +183,15 @@ function matchesFromCourtGroups(groups, playersById, counts, mixed, rng) {
   });
 }
 
+function mixedWanted(settings) {
+  return settings.pairType === 'mixed' || settings.formatVariant === 'mixed';
+}
+
 function assertRoster(players, settings) {
-  const courts = Number(settings.courts) || 2;
-  const need = expectedPlayerCount(courts);
-  if (players.length !== need) {
-    throw new Error(
-      courts === 3
-        ? 'Для трёх кортов нужно ровно 12 игроков.'
-        : 'Для двух кортов нужно ровно 8 игроков.',
-    );
+  if (players.length < 4) {
+    throw new Error('Нужно минимум 4 игрока.');
   }
-  const mixed = settings.pairType === 'mixed';
+  const mixed = mixedWanted(settings);
   if (mixed) {
     const { m, f } = genderCounts(players);
     if (m !== f) {
@@ -207,13 +212,17 @@ export function generateRound({
   rng = Math.random,
 }) {
   assertRoster(players, settings);
-  const mixed = settings.pairType === 'mixed';
+  const mixed = mixedWanted(settings);
   const playersById = playersByIdMap(players);
 
   if (kind === 'qualifying') {
-    const courts = Number(settings.courts) || 2;
+    const roundIndex = rounds.filter((r) => r.kind === 'qualifying').length;
+    const { sitting, playingPlayers } = splitSitters(players, roundIndex);
+    const playCourts = autoCourts(playingPlayers.length);
     return {
-      matches: qualifyingMatches(players, courts, mixed, playersById, rng),
+      matches: qualifyingMatches(playingPlayers, playCourts, mixed, playersById, rng),
+      sitting,
+      note: sittingNote(sitting, players),
       warning: '',
       format: 'qualifying',
     };
@@ -236,7 +245,7 @@ export function generateRound({
     if (result) return result;
   }
 
-  if (settings.kingOfTheCourt && courtGroups?.length === (Number(settings.courts) || 2)) {
+  if (settings.kingOfTheCourt && courtGroups?.length === autoCourts(players.length)) {
     const counts = partnerCounts(rounds);
     return {
       matches: matchesFromCourtGroups(courtGroups, playersById, counts, mixed, rng),
