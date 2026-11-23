@@ -22,6 +22,7 @@ import {
 export {
   autoCourts,
   bestPairingOfFour,
+  compactMatchLine,
   expectedPlayerCount,
   formatMatchLine,
   genderCounts,

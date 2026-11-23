@@ -1,4 +1,4 @@
-import { countedGames, gamesSum } from './scoring.js';
+import { countedGames, gamesSum, settingsForRound } from './scoring.js';
 import { rankPlayers } from './standings.js';
 import { shuffle } from './rng.js';
 import { nextFreeRound } from './fixed.js';
@@ -575,6 +575,8 @@ function kingNote(details, players) {
 }
 
 export function nextFormatRound(args) {
+  const last = args.rounds?.[args.rounds.length - 1];
+  args = { ...args, settings: settingsForRound(last, args.settings) };
   const format = args.settings.tournamentFormat || 'free';
   const variant = args.settings.formatVariant || 'classic';
   if ((format === 'americano' || format === 'mexicano') && variant === 'team') {

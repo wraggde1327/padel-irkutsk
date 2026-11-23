@@ -1,12 +1,16 @@
 import { generateRound, kingOfTheCourtGroups, genderCounts, autoCourts } from './pairing.js';
 import {
-  autoFillOther,
   applyTennisPoint,
+  autoFillScore,
   emptyGame,
+  freezeRoundScoring,
   isGameComplete,
   matchComplete,
   neededGames,
+  scoringSnapshot,
+  settingsForRound,
 } from './scoring.js';
+import { nearestWheelValue, scrollWheelTo, syncScoreWheels } from './wheel.js';
 import { computeStandings } from './standings.js';
 import {
   activeTournament,
@@ -50,11 +54,16 @@ function toast(message) {
 function paint() {
   const active = document.activeElement;
   const id = active && active.id;
+  const scoreHidden =
+    active instanceof HTMLInputElement &&
+    active.dataset.action === 'score' &&
+    !(store.ui.typedScoreKeys || []).includes(id);
   const start = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   const end = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   renderApp(root, store);
   persist();
-  if (id) {
+  bindScoreWheels();
+  if (id && !scoreHidden) {
     const el = document.getElementById(id);
     if (el && typeof el.focus === 'function') {
       el.focus();
@@ -67,6 +76,64 @@ function paint() {
       }
     }
   }
+}
+
+function bindScoreWheels() {
+  for (const el of root.querySelectorAll('[data-wheel]')) {
+    el.addEventListener('scroll', onWheelScroll);
+    el.addEventListener('scrollend', onWheelCommit);
+  }
+  requestAnimationFrame(() => syncScoreWheels(root));
+}
+
+function onWheelScroll(event) {
+  const el = event.currentTarget;
+  if (!(el instanceof HTMLElement) || el.dataset.syncing) return;
+  window.clearTimeout(el._wheelTimer);
+  el._wheelTimer = window.setTimeout(() => commitWheel(el), 90);
+}
+
+function onWheelCommit(event) {
+  const el = event.currentTarget;
+  if (!(el instanceof HTMLElement)) return;
+  window.clearTimeout(el._wheelTimer);
+  if (el.dataset.syncing) {
+    el.dataset.syncing = '';
+    return;
+  }
+  commitWheel(el);
+}
+
+function commitWheel(el) {
+  if (el.dataset.syncing) return;
+  const value = nearestWheelValue(el);
+  const raw = value == null ? '' : String(value);
+  if (raw === (el.dataset.value ?? '')) return;
+  el.dataset.value = raw;
+  setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, raw, true);
+}
+
+const SCORING_KEYS = new Set([
+  'scoringMode',
+  'gamesToWin',
+  'decidingGame',
+  'pointsPreset',
+  'customPoints',
+  'winByTwo',
+  'totalPoints',
+  'customTotal',
+  'qualifyingPoints',
+  'gamesPerPairing',
+]);
+
+function patchLiveSettings(t, patch) {
+  const keys = Object.keys(patch);
+  if (keys.some((key) => SCORING_KEYS.has(key))) freezeRoundScoring(t.rounds, t.settings);
+  for (const [key, value] of Object.entries(patch)) {
+    patchSettings(t.settings, key, key === 'gamesToWin' ? Number(value) : value);
+  }
+  if (t.settings.scoringMode === 'games') t.settings.setScore = true;
+  if (t.settings.scoringMode === 'total') t.settings.winByTwo = false;
 }
 
 function findPlayer(id) {
@@ -96,7 +163,9 @@ function lastRound() {
 
 function roundIsComplete(round) {
   const t = tournament();
-  return Boolean(round && t && round.matches.every((m) => matchComplete(m, t.settings, round.kind)));
+  if (!round || !t) return false;
+  const settings = settingsForRound(round, t.settings);
+  return round.matches.every((m) => matchComplete(m, settings, round.kind));
 }
 
 function roundHasScores(round) {
@@ -147,8 +216,9 @@ function generate(kind, method = null) {
       last &&
       roundIsComplete(last)
     ) {
-      courtGroups = kingOfTheCourtGroups(last.matches, t.settings, last.kind);
+      courtGroups = kingOfTheCourtGroups(last.matches, settingsForRound(last, t.settings), last.kind);
     }
+    freezeRoundScoring(t.rounds, t.settings);
     const result = generateRound({
       players: t.players,
       settings: t.settings,
@@ -172,14 +242,17 @@ function generate(kind, method = null) {
       fixedPairs: result.fixedPairs || null,
       override: Boolean(result.override || method),
       closedEarly: false,
+      scoring: scoringSnapshot(t.settings, { forNewRound: true }),
     };
     if (result.fixedPairs) t.fixedPairs = result.fixedPairs;
     t.settings.courts = Math.max(1, autoCourts(t.players.length));
-    for (const match of round.matches) ensureMatchGames(match, t.settings, kind);
+    const roundSettings = settingsForRound(round, t.settings);
+    for (const match of round.matches) ensureMatchGames(match, roundSettings, kind);
     t.nextRoundNum += 1;
     t.rounds.push(round);
     store.ui.tab = 'play';
     store.ui.newPairsOpen = false;
+    store.ui.expandedRoundIds = [];
     touchTournament(t);
     if (result.warning) toast(result.warning);
     else paint();
@@ -203,15 +276,16 @@ function applyNewPairs(method) {
 
 let scorePaintTimer = 0;
 
-function setScore(roundIndex, court, gameIndex, side, raw, target, winByTwo, fromUser) {
+function setScore(roundIndex, court, gameIndex, side, raw, fromUser) {
   const t = tournament();
   if (!t) return;
   const round = t.rounds[roundIndex];
   if (!round) return;
   const match = round.matches.find((m) => m.court === Number(court));
   if (!match) return;
-  const beforeSlots = neededGames(t.settings, round.kind, match.games);
-  ensureMatchGames(match, t.settings, round.kind);
+  const settings = settingsForRound(round, t.settings);
+  const beforeSlots = neededGames(settings, round.kind, match.games);
+  ensureMatchGames(match, settings, round.kind);
   const game = match.games[Number(gameIndex)] || emptyGame();
   const parsed = raw === '' || raw == null ? null : Number.isFinite(Number(raw)) ? Number(raw) : null;
   game.touched = game.touched || { a: false, b: false };
@@ -220,27 +294,41 @@ function setScore(roundIndex, court, gameIndex, side, raw, target, winByTwo, fro
   let filledOther = null;
   if (fromUser) {
     const otherSide = side === 'a' ? 'b' : 'a';
-    const other = autoFillOther(
-      parsed,
-      target === '' ? null : Number(target),
-      winByTwo === '1' || winByTwo === true,
-    );
+    const other = autoFillScore(parsed, settings, round.kind);
     if (other != null && !game.touched[otherSide]) {
       game[otherSide] = other;
       filledOther = { otherSide, other };
     }
   }
   match.games[Number(gameIndex)] = game;
-  ensureMatchGames(match, t.settings, round.kind);
+  ensureMatchGames(match, settings, round.kind);
   touchTournament(t);
   persist();
+  const selfEl = document.getElementById(`score-r${roundIndex}-c${court}-g${gameIndex}-${side}`);
+  if (selfEl instanceof HTMLInputElement) selfEl.value = parsed == null ? '' : String(parsed);
+  const selfWheel = root.querySelector(
+    `[data-wheel][data-round="${roundIndex}"][data-court="${court}"][data-game="${gameIndex}"][data-side="${side}"]`,
+  );
+  if (selfWheel instanceof HTMLElement) {
+    selfWheel.dataset.value = parsed == null ? '' : String(parsed);
+    selfWheel.dataset.syncing = '1';
+    scrollWheelTo(selfWheel, parsed, true);
+  }
   if (filledOther) {
     const otherEl = document.getElementById(
       `score-r${roundIndex}-c${court}-g${gameIndex}-${filledOther.otherSide}`,
     );
     if (otherEl instanceof HTMLInputElement) otherEl.value = String(filledOther.other);
+    const otherWheel = root.querySelector(
+      `[data-wheel][data-round="${roundIndex}"][data-court="${court}"][data-game="${gameIndex}"][data-side="${filledOther.otherSide}"]`,
+    );
+    if (otherWheel instanceof HTMLElement) {
+      otherWheel.dataset.value = String(filledOther.other);
+      otherWheel.dataset.syncing = '1';
+      scrollWheelTo(otherWheel, filledOther.other, true);
+    }
   }
-  const afterSlots = neededGames(t.settings, round.kind, match.games);
+  const afterSlots = neededGames(settings, round.kind, match.games);
   maybeOfferRebuild(roundIndex);
   window.clearTimeout(scorePaintTimer);
   if (afterSlots !== beforeSlots) {
@@ -271,7 +359,7 @@ function rebuildNextRound() {
     const prev = t.rounds[index - 1];
     let courtGroups = null;
     if ((t.settings.tournamentFormat || 'free') === 'free' && t.settings.kingOfTheCourt && prev) {
-      courtGroups = kingOfTheCourtGroups(prev.matches, t.settings, prev.kind);
+      courtGroups = kingOfTheCourtGroups(prev.matches, settingsForRound(prev, t.settings), prev.kind);
     }
     const result = generateRound({
       players: t.players,
@@ -289,7 +377,9 @@ function rebuildNextRound() {
     round.courtGroups = result.courtGroups || null;
     round.fixedPairs = result.fixedPairs || round.fixedPairs;
     round.playerOrder = result.playerOrder || round.playerOrder;
-    for (const match of round.matches) ensureMatchGames(match, t.settings, round.kind);
+    if (!round.scoring) round.scoring = scoringSnapshot(t.settings, { forNewRound: true });
+    const roundSettings = settingsForRound(round, t.settings);
+    for (const match of round.matches) ensureMatchGames(match, roundSettings, round.kind);
     if (result.fixedPairs) t.fixedPairs = result.fixedPairs;
     store.ui.rebuildOffer = null;
     touchTournament(t);
@@ -306,6 +396,7 @@ function openTournament(id) {
   store.ui.screen = 'tournament';
   store.ui.tab = t.rounds.length ? 'play' : 'players';
   store.ui.renameId = null;
+  store.ui.expandedRoundIds = [];
   location.hash = store.ui.tab;
   paint();
 }
@@ -549,13 +640,42 @@ function onClick(event) {
     return;
   }
   if (action === 'toggle-bool' && t) {
-    t.settings[btn.dataset.key] = btn.dataset.value === '1';
+    patchLiveSettings(t, { [btn.dataset.key]: btn.dataset.value === '1' });
     touchTournament(t);
     paint();
     return;
   }
+  if (action === 'score-wheel') {
+    const raw = btn.dataset.n ?? '';
+    const wheel = btn.closest('[data-wheel]');
+    if (wheel instanceof HTMLElement) {
+      wheel.dataset.value = raw;
+      wheel.dataset.syncing = '1';
+    }
+    setScore(Number(btn.dataset.round), btn.dataset.court, btn.dataset.game, btn.dataset.side, raw, true);
+    return;
+  }
+  if (action === 'score-type') {
+    const id = btn.dataset.id;
+    const list = store.ui.typedScoreKeys || [];
+    store.ui.typedScoreKeys = list.includes(id) ? list.filter((x) => x !== id) : list.concat(id);
+    paint();
+    if ((store.ui.typedScoreKeys || []).includes(id)) {
+      document.getElementById(id)?.focus();
+    }
+    return;
+  }
   if (action === 'draft-toggle-bool' && store.ui.draft) {
     store.ui.draft.settings[btn.dataset.key] = btn.dataset.value === '1';
+    paint();
+    return;
+  }
+  if (action === 'toggle-round') {
+    const id = btn.dataset.id;
+    const current = lastRound();
+    if (current && current.id === id) return;
+    const list = store.ui.expandedRoundIds || [];
+    store.ui.expandedRoundIds = list.includes(id) ? list.filter((x) => x !== id) : list.concat(id);
     paint();
     return;
   }
@@ -583,7 +703,7 @@ function onClick(event) {
     return;
   }
   if (action === 'preset' && t) {
-    t.settings.pointsPreset = btn.dataset.n === 'custom' ? 'custom' : Number(btn.dataset.n);
+    patchLiveSettings(t, { pointsPreset: btn.dataset.n === 'custom' ? 'custom' : Number(btn.dataset.n) });
     touchTournament(t);
     paint();
     return;
@@ -594,7 +714,7 @@ function onClick(event) {
     return;
   }
   if (action === 'qual-pts' && t) {
-    t.settings.qualifyingPoints = Number(btn.dataset.n);
+    patchLiveSettings(t, { qualifyingPoints: Number(btn.dataset.n) });
     touchTournament(t);
     paint();
     return;
@@ -605,9 +725,10 @@ function onClick(event) {
     return;
   }
   if (action === 'total-pts' && t) {
-    t.settings.scoringMode = 'total';
-    t.settings.totalPoints = btn.dataset.n === 'custom' ? 'custom' : Number(btn.dataset.n);
-    t.settings.winByTwo = false;
+    patchLiveSettings(t, {
+      scoringMode: 'total',
+      totalPoints: btn.dataset.n === 'custom' ? 'custom' : Number(btn.dataset.n),
+    });
     touchTournament(t);
     paint();
     return;
@@ -620,13 +741,16 @@ function onClick(event) {
     return;
   }
   if (action === 'setting-val' && t) {
-    patchSettings(t.settings, btn.dataset.key, btn.dataset.value);
+    patchLiveSettings(t, { [btn.dataset.key]: btn.dataset.value });
     touchTournament(t);
     paint();
     return;
   }
   if (action === 'draft-setting-val' && store.ui.draft) {
-    patchSettings(store.ui.draft.settings, btn.dataset.key, btn.dataset.value);
+    const key = btn.dataset.key;
+    const value = key === 'gamesToWin' ? Number(btn.dataset.value) : btn.dataset.value;
+    patchSettings(store.ui.draft.settings, key, value);
+    if (store.ui.draft.settings.scoringMode === 'games') store.ui.draft.settings.setScore = true;
     paint();
     return;
   }
@@ -679,7 +803,7 @@ function onChange(event) {
     return;
   }
   if (action === 'toggle' && el instanceof HTMLInputElement && t) {
-    t.settings[el.dataset.key] = el.checked;
+    patchLiveSettings(t, { [el.dataset.key]: el.checked });
     touchTournament(t);
     paint();
     return;
@@ -695,13 +819,18 @@ function onChange(event) {
     return;
   }
   if ((action === 'setting' || action === 'draft-setting') && el instanceof HTMLInputElement) {
-    const target = action === 'draft-setting' ? store.ui.draft?.settings : t?.settings;
-    if (!target) return;
     const key = el.dataset.key;
     const value = el.type === 'text' ? el.value : Number(el.value);
-    target[key] = key === 'scoringMode' ? el.value : value;
-    if (t && action === 'setting') touchTournament(t);
-    paint();
+    if (action === 'draft-setting' && store.ui.draft?.settings) {
+      store.ui.draft.settings[key] = key === 'scoringMode' ? el.value : value;
+      paint();
+      return;
+    }
+    if (t) {
+      patchLiveSettings(t, { [key]: key === 'scoringMode' ? el.value : value });
+      touchTournament(t);
+      paint();
+    }
   }
 }
 
@@ -709,16 +838,7 @@ function onInput(event) {
   const el = event.target;
   if (!(el instanceof HTMLInputElement)) return;
   if (el.dataset.action === 'score') {
-    setScore(
-      Number(el.dataset.round),
-      el.dataset.court,
-      el.dataset.game,
-      el.dataset.side,
-      el.value,
-      el.dataset.target,
-      el.dataset.winbytwo,
-      true,
-    );
+    setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, el.value, true);
   }
 }
 
@@ -773,6 +893,13 @@ window.padelTracker = {
   reset() {
     store = emptyStore();
     location.hash = '';
+    paint();
+  },
+  patchActive(patch) {
+    const t = tournament();
+    if (!t || !patch || typeof patch !== 'object') return;
+    Object.assign(t.settings, patch);
+    touchTournament(t);
     paint();
   },
 };

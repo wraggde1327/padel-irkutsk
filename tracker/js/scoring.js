@@ -17,6 +17,51 @@ export function pointsTarget(settings, roundKind) {
   return null;
 }
 
+export function gamesToWin(settings) {
+  const n = Number(settings.gamesToWin);
+  if (Number.isFinite(n) && n >= 1) return Math.round(n);
+  return 6;
+}
+
+/** Верх барабана и крутилки: 0..цель (очки) или 0..N (геймы). */
+export function scoreWheelMax(settings, roundKind) {
+  if (settings.scoringMode === 'games' && roundKind !== 'qualifying') return gamesToWin(settings);
+  const target = pointsTarget(settings, roundKind);
+  if (target == null) return 32;
+  return Math.max(0, Number(target));
+}
+
+export function scoringSnapshot(settings, { forNewRound = false } = {}) {
+  const gamesMode = settings.scoringMode === 'games';
+  return {
+    scoringMode: settings.scoringMode,
+    setScore: gamesMode && (forNewRound || settings.setScore === true),
+    gamesToWin: gamesToWin(settings),
+    gamesPerPairing: settings.gamesPerPairing,
+    decidingGame: Boolean(settings.decidingGame),
+    pointsPreset: settings.pointsPreset,
+    customPoints: settings.customPoints,
+    winByTwo: Boolean(settings.winByTwo),
+    totalPoints: settings.totalPoints,
+    customTotal: settings.customTotal,
+    qualifyingPoints: settings.qualifyingPoints,
+  };
+}
+
+export function settingsForRound(round, tournamentSettings) {
+  if (round?.scoring && typeof round.scoring === 'object') {
+    return { ...tournamentSettings, ...round.scoring };
+  }
+  return tournamentSettings;
+}
+
+export function freezeRoundScoring(rounds, settings) {
+  const snap = scoringSnapshot(settings);
+  for (const round of rounds || []) {
+    if (!round.scoring) round.scoring = { ...snap };
+  }
+}
+
 /** Режим Lunda: матч до суммы очков, без «с разницей в 2». */
 export function usesTotalPoints(settings, roundKind) {
   return roundKind !== 'qualifying' && settings?.scoringMode === 'total';
@@ -30,6 +75,43 @@ export function autoFillOther(entered, target, winByTwo) {
   const n = Number(entered);
   if (!Number.isFinite(n)) return null;
   return Math.max(0, Number(target) - Math.max(0, Math.round(n)));
+}
+
+/**
+ * Геймы до N. Если ввели меньше N — вторая сторона N.
+ * Если ввели N и есть решающий — не заполняем (неоднозначно).
+ * Если ввели N без решающего — подставляем N-2.
+ */
+export function autoFillGames(entered, n, decidingGame) {
+  if (entered === '' || entered == null) return null;
+  const v = Number(entered);
+  const N = Math.max(1, Number(n) || 6);
+  if (!Number.isFinite(v) || v < 0) return null;
+  if (v < N) return N;
+  if (v === N) return decidingGame ? null : Math.max(0, N - 2);
+  return null;
+}
+
+export function autoFillScore(entered, settings, roundKind) {
+  if (settings.scoringMode === 'games' && settings.setScore && roundKind !== 'qualifying') {
+    return autoFillGames(entered, gamesToWin(settings), settings.decidingGame);
+  }
+  const winByTwo =
+    roundKind === 'qualifying' || usesTotalPoints(settings, roundKind) ? false : Boolean(settings.winByTwo);
+  return autoFillOther(entered, pointsTarget(settings, roundKind), winByTwo);
+}
+
+/** Валидный сет: победитель ровно N, проигравший ≤ N-1 (решающий) или ≤ N-2. */
+export function isValidSetScore(a, b, settings) {
+  if (!Number.isFinite(Number(a)) || !Number.isFinite(Number(b))) return false;
+  const left = Number(a);
+  const right = Number(b);
+  if (left === right) return false;
+  const N = gamesToWin(settings);
+  const hi = Math.max(left, right);
+  const lo = Math.min(left, right);
+  if (hi !== N || lo < 0) return false;
+  return settings.decidingGame ? lo <= N - 1 : lo <= N - 2;
 }
 
 function isFilledScore(value) {
@@ -65,20 +147,24 @@ export function gamesSum(games) {
 }
 
 /**
- * Сколько игр в матче.
- * Квалификация и очки — один сет. Теннисные геймы — N геймов, плюс решающий при ничьей.
+ * Слотов счёта в карточке. Квалификация, очки и геймы (сет до N) — одна строка.
+ * Старые круги с несколькими геймами оставляем как есть.
  */
 export function neededGames(settings, roundKind, games) {
   if (roundKind === 'qualifying') return 1;
-  if (settings.scoringMode !== 'games') return 1;
-  const base = Math.max(1, Number(settings.gamesPerPairing) || 1);
-  if (!settings.decidingGame) return base;
-  const played = (games || []).slice(0, base).filter(isGameComplete);
-  if (played.length < base) return base;
-  const wins = gameWins(played);
-  const pts = gamesSum(played);
-  if (wins.a === wins.b || pts.a === pts.b) return base + 1;
-  return base;
+  if (settings.scoringMode === 'games' && !settings.setScore) {
+    const base = Math.max(1, Number(settings.gamesPerPairing) || 1);
+    if (base > 1) {
+      if (!settings.decidingGame) return base;
+      const played = (games || []).slice(0, base).filter(isGameComplete);
+      if (played.length < base) return base;
+      const wins = gameWins(played);
+      const pts = gamesSum(played);
+      if (wins.a === wins.b || pts.a === pts.b) return base + 1;
+      return base;
+    }
+  }
+  return 1;
 }
 
 export function countedGames(match, settings) {
@@ -90,7 +176,11 @@ export function matchComplete(match, settings, roundKind) {
   const kind = roundKind || match.kind;
   const n = neededGames(settings, kind, match.games);
   const games = (match.games || []).slice(0, n);
-  return games.length >= n && games.every(isGameComplete);
+  if (games.length < n || !games.every(isGameComplete)) return false;
+  if (settings.scoringMode === 'games' && settings.setScore && kind !== 'qualifying') {
+    return games.every((g) => isValidSetScore(g.a, g.b, settings));
+  }
+  return true;
 }
 
 export function emptyGame() {

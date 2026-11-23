@@ -1,14 +1,15 @@
 import {
   gamesSum,
+  gamesToWin,
   isGameComplete,
   matchComplete,
   neededGames,
-  pointsTarget,
+  scoreWheelMax,
+  settingsForRound,
   tennisLabel,
-  usesTotalPoints,
 } from './scoring.js';
 import { computeStandings, sortStandings } from './standings.js';
-import { autoCourts, formatMatchLine, genderCounts } from './pairing.js';
+import { autoCourts, compactMatchLine, formatMatchLine, genderCounts } from './pairing.js';
 import { FORMAT_OPTIONS, formatTitle } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
 import { activeTournament, ensureMatchGames } from './state.js';
@@ -42,10 +43,6 @@ function playerName(playersById, id) {
   return esc(playersById.get(id)?.name || id);
 }
 
-function teamLabel(playersById, ids) {
-  return `${playerName(playersById, ids[0])} / ${playerName(playersById, ids[1])}`;
-}
-
 export function canPlayMixed(players) {
   const { m, f } = genderCounts(players);
   return m === f && m > 0;
@@ -53,6 +50,10 @@ export function canPlayMixed(players) {
 
 export function scoringSummary(s) {
   if (s.scoringMode === 'games') {
+    const n = gamesToWin(s);
+    if (s.setScore || s.gamesToWin) {
+      return `геймы до ${n}${s.decidingGame ? ', решающий' : ''}`;
+    }
     return `теннис, ${s.gamesPerPairing} ${ruGames(s.gamesPerPairing)}${s.decidingGame ? ' + решающий' : ''}`;
   }
   if (s.scoringMode === 'total') {
@@ -403,14 +404,11 @@ function renderRoundsLimit(s, draft) {
     <p class="hint">Корты считаются сами: игроков ÷ 4. Лишние сидят по очереди.</p>`;
 }
 
-export function renderScoringFields(s, { lunda = false, draft = false } = {}) {
-  const action = draft ? 'draft-setting-val' : 'setting-val';
-  const toggle = draft ? 'draft-toggle' : 'toggle';
-  const preset = draft ? 'draft-preset' : 'preset';
+function renderTotalPointsFields(s, { draft = false } = {}) {
   const total = draft ? 'draft-total' : 'total-pts';
-  if (lunda) {
-    const n = s.totalPoints;
-    return `
+  const n = s.totalPoints;
+  return `
+    <p class="field-label">Сумма очков</p>
     <div class="seg wrap">
       ${[16, 21, 24, 32]
         .map(
@@ -427,40 +425,72 @@ export function renderScoringFields(s, { lunda = false, draft = false } = {}) {
           </label>`
         : ''
     }`;
-  }
-  const pointsMode = s.scoringMode !== 'games';
+}
+
+function renderPointsFields(s, { draft = false } = {}) {
+  const toggle = draft ? 'draft-toggle' : 'toggle';
+  const preset = draft ? 'draft-preset' : 'preset';
   return `
-    <div class="seg">
-      <button type="button" class="seg-btn ${pointsMode ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="points">По очкам</button>
-      <button type="button" class="seg-btn ${!pointsMode ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="games">Теннис, геймы</button>
+    <p class="field-label">До скольких</p>
+    <div class="seg wrap">
+      ${[11, 15, 21].map((n) => `<button type="button" class="seg-btn ${s.pointsPreset === n ? 'is-on' : ''}" data-action="${preset}" data-n="${n}">${n}</button>`).join('')}
+      <button type="button" class="seg-btn ${s.pointsPreset === 'custom' ? 'is-on' : ''}" data-action="${preset}" data-n="custom">Своё</button>
     </div>
-    <div class="${pointsMode ? '' : 'is-hidden'}">
-      <p class="field-label">До скольких</p>
-      <div class="seg wrap">
-        ${[11, 15, 21].map((n) => `<button type="button" class="seg-btn ${s.pointsPreset === n ? 'is-on' : ''}" data-action="${preset}" data-n="${n}">${n}</button>`).join('')}
-        <button type="button" class="seg-btn ${s.pointsPreset === 'custom' ? 'is-on' : ''}" data-action="${preset}" data-n="custom">Своё</button>
-      </div>
+    ${
+      s.pointsPreset === 'custom'
+        ? `<label class="field">Своё N
+            <input class="input" type="number" min="3" max="99" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="customPoints" value="${esc(s.customPoints)}" />
+          </label>`
+        : ''
+    }
+    <label class="toggle">
+      <input type="checkbox" data-action="${toggle}" data-key="winByTwo" ${s.winByTwo ? 'checked' : ''} />
+      <span>Победа с разницей в 2</span>
+    </label>`;
+}
+
+function renderGamesFields(s, { draft = false } = {}) {
+  const action = draft ? 'draft-setting-val' : 'setting-val';
+  const toggle = draft ? 'draft-toggle' : 'toggle';
+  const n = gamesToWin(s);
+  return `
+    <p class="field-label">Геймов до победы</p>
+    <div class="seg wrap">
+      ${[4, 6, 7]
+        .map(
+          (v) =>
+            `<button type="button" class="seg-btn ${n === v ? 'is-on' : ''}" data-action="${action}" data-key="gamesToWin" data-value="${v}">${v}</button>`,
+        )
+        .join('')}
+    </div>
+    <label class="toggle">
+      <input type="checkbox" data-action="${toggle}" data-key="decidingGame" ${s.decidingGame ? 'checked' : ''} />
+      <span>Решающий при ${n - 1}:${n - 1}</span>
+    </label>
+    <p class="hint">${s.decidingGame ? `Максимум ${n}:${n - 1}. Например ${n}:${Math.max(0, n - 1)}.` : `Максимум ${n}:${Math.max(0, n - 2)}, без тай-брейка.`}</p>`;
+}
+
+export function renderScoringFields(s, { lunda = false, draft = false } = {}) {
+  const action = draft ? 'draft-setting-val' : 'setting-val';
+  const mode = s.scoringMode;
+  if (draft && lunda) {
+    return renderTotalPointsFields(s, { draft });
+  }
+  const showTotal = !draft || lunda;
+  const pointsOn = mode === 'points' || (mode !== 'games' && mode !== 'total');
+  const gamesOn = mode === 'games';
+  const totalOn = mode === 'total';
+  return `
+    <div class="seg wrap">
+      <button type="button" class="seg-btn ${pointsOn ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="points">По очкам</button>
+      <button type="button" class="seg-btn ${gamesOn ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="games">Геймы</button>
       ${
-        s.pointsPreset === 'custom'
-          ? `<label class="field">Своё N
-              <input class="input" type="number" min="3" max="99" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="customPoints" value="${esc(s.customPoints)}" />
-            </label>`
+        showTotal
+          ? `<button type="button" class="seg-btn ${totalOn ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="total">Сумма</button>`
           : ''
       }
-      <label class="toggle">
-        <input type="checkbox" data-action="${toggle}" data-key="winByTwo" ${s.winByTwo ? 'checked' : ''} />
-        <span>Победа с разницей в 2</span>
-      </label>
     </div>
-    <div class="${pointsMode ? 'is-hidden' : ''}">
-      <label class="field">Геймов в матче
-        <input class="input" type="number" min="1" max="7" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="gamesPerPairing" value="${esc(s.gamesPerPairing)}" />
-      </label>
-      <label class="toggle">
-        <input type="checkbox" data-action="${toggle}" data-key="decidingGame" ${s.decidingGame ? 'checked' : ''} />
-        <span>Решающий при ничьей</span>
-      </label>
-    </div>`;
+    ${gamesOn ? renderGamesFields(s, { draft }) : totalOn ? renderTotalPointsFields(s, { draft }) : renderPointsFields(s, { draft })}`;
 }
 
 function rosterHint(players) {
@@ -517,7 +547,8 @@ function renderPlay(store, tournament) {
   }
 
   const last = tournament.rounds[tournament.rounds.length - 1];
-  const lastDone = last && last.matches.every((m) => matchComplete(m, tournament.settings, last.kind));
+  const lastSettings = last ? settingsForRound(last, tournament.settings) : tournament.settings;
+  const lastDone = last && last.matches.every((m) => matchComplete(m, lastSettings, last.kind));
   const canQual =
     tournament.settings.qualifyingEnabled && !tournament.rounds.some((r) => r.kind === 'qualifying');
   const format = tournament.settings.tournamentFormat || 'free';
@@ -633,82 +664,147 @@ function roundTitle(round, index) {
   return `Круг ${n}${fmt}${early}`;
 }
 
+function compactRoundLine(round, playersById) {
+  return round.matches
+    .slice()
+    .sort((a, b) => a.court - b.court || (a.sequence || 0) - (b.sequence || 0))
+    .map((m) => {
+      const games = (m.games || []).filter(isGameComplete);
+      const sum = gamesSum(games);
+      const score = games.length ? `${sum.a}:${sum.b}` : '';
+      return compactMatchLine(m, playersById, score);
+    })
+    .join(' · ');
+}
+
+function isRoundExpanded(store, round, isCurrent) {
+  if (isCurrent) return true;
+  return (store.ui.expandedRoundIds || []).includes(round.id);
+}
+
 function renderRound(store, tournament, round, index, playersById, isCurrent) {
-  const cards = round.matches
-    .slice()
-    .sort((a, b) => a.court - b.court)
-    .map((match) => renderMatch(store, tournament, round, index, match, playersById, isCurrent))
-    .join('');
-  const lines = round.matches
-    .slice()
-    .sort((a, b) => a.court - b.court)
-    .map((m) => `<p class="court-line">${esc(formatMatchLine(m, playersById))}</p>`)
-    .join('');
+  const expanded = isRoundExpanded(store, round, isCurrent);
+  const title = roundTitle(round, index);
+  const summary = compactRoundLine(round, playersById);
+  const cards = expanded
+    ? round.matches
+        .slice()
+        .sort((a, b) => a.court - b.court)
+        .map((match) => renderMatch(store, tournament, round, index, match, playersById, expanded))
+        .join('')
+    : '';
+  const head = isCurrent
+    ? `<h3>${esc(title)}</h3>`
+    : `<button type="button" class="round-toggle" data-action="toggle-round" data-id="${esc(round.id)}" aria-expanded="${expanded ? 'true' : 'false'}">
+        <h3>${esc(title)}</h3>
+        ${
+          expanded
+            ? '<span class="round-toggle-hint">Свернуть</span>'
+            : `<span class="round-summary-line">${esc(summary)}</span>`
+        }
+      </button>`;
   return `
-    <article class="card round ${isCurrent ? 'is-current' : ''}">
-      <h3>${esc(roundTitle(round, index))}</h3>
-      ${round.note ? `<p class="move-note">${esc(round.note)}</p>` : ''}
-      <div class="court-lines">${lines}</div>
+    <article class="card round ${isCurrent ? 'is-current' : ''} ${expanded ? '' : 'is-collapsed'}" data-round-id="${esc(round.id)}">
+      ${head}
+      ${expanded && round.note ? `<p class="move-note">${esc(round.note)}</p>` : ''}
       ${cards}
     </article>
   `;
 }
 
-function renderMatch(store, tournament, round, roundIndex, match, playersById, isCurrent) {
-  ensureMatchGames(match, tournament.settings, round.kind);
-  const n = neededGames(tournament.settings, round.kind, match.games);
+function teamNamesBlock(playersById, ids) {
+  return `<p class="team-names"><span>${playerName(playersById, ids[0])}</span><span>${playerName(playersById, ids[1])}</span></p>`;
+}
+
+function renderMatch(store, tournament, round, roundIndex, match, playersById, expanded) {
+  const settings = settingsForRound(round, tournament.settings);
+  ensureMatchGames(match, settings, round.kind);
+  const n = neededGames(settings, round.kind, match.games);
   const games = match.games.slice(0, n);
-  const target = pointsTarget(tournament.settings, round.kind);
-  const winByTwo =
-    round.kind === 'qualifying' || usesTotalPoints(tournament.settings, round.kind)
-      ? false
-      : tournament.settings.winByTwo;
   const sum = gamesSum(games.filter(isGameComplete));
-  const showTennis = tournament.settings.scoringMode === 'games' && round.kind !== 'qualifying';
-  const gameRows = games
+  const showTennis = settings.scoringMode === 'games' && round.kind !== 'qualifying';
+  const aLabel = `${playersById.get(match.teamA[0])?.name || match.teamA[0]} / ${playersById.get(match.teamA[1])?.name || match.teamA[1]}`;
+  const bLabel = `${playersById.get(match.teamB[0])?.name || match.teamB[0]} / ${playersById.get(match.teamB[1])?.name || match.teamB[1]}`;
+  const typed = store.ui.typedScoreKeys || [];
+  const aScores = games
     .map((g, gi) => {
-      const board =
-        showTennis && isCurrent ? renderScoreboard(store, roundIndex, match.court, gi, g) : '';
       const label =
         n === 1
-          ? 'Счёт'
-          : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : tournament.settings.gamesPerPairing) ? ' · решающий' : ''}`;
-      return `
-        <div class="score-row">
-          <span class="score-label">${label}</span>
-          <div class="score-inputs">
-            ${scoreInput(roundIndex, match.court, gi, 'a', g.a, target, winByTwo)}
-            <span class="score-colon">:</span>
-            ${scoreInput(roundIndex, match.court, gi, 'b', g.b, target, winByTwo)}
-          </div>
-          ${board}
-        </div>`;
+          ? ''
+          : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : settings.gamesPerPairing) ? ' · решающий' : ''}`;
+      return `${label ? `<span class="score-label">${label}</span>` : ''}${scorePicker(roundIndex, match.court, gi, 'a', g.a, settings, round.kind, aLabel, typed)}`;
     })
     .join('');
+  const bScores = games
+    .map((g, gi) => {
+      const label =
+        n === 1
+          ? ''
+          : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : settings.gamesPerPairing) ? ' · решающий' : ''}`;
+      return `${label ? `<span class="score-label">${label}</span>` : ''}${scorePicker(roundIndex, match.court, gi, 'b', g.b, settings, round.kind, bLabel, typed)}`;
+    })
+    .join('');
+  const boards = showTennis
+    ? games.map((g, gi) => renderScoreboard(store, roundIndex, match.court, gi, g)).join('')
+    : '';
   return `
     <div class="match">
       <div class="match-head">
         <span class="badge">Корт ${match.court}${match.sequence ? ` · смена ${match.sequence}` : ''}</span>
         ${isGameComplete({ a: sum.a, b: sum.b }) && games.some(isGameComplete) ? `<span class="sum">${sum.a} — ${sum.b}</span>` : ''}
       </div>
-      <div class="teams">
-        <p class="team">${teamLabel(playersById, match.teamA)}</p>
-        <p class="vs">против</p>
-        <p class="team">${teamLabel(playersById, match.teamB)}</p>
+      <div class="match-duel">
+        <div class="match-side">
+          ${teamNamesBlock(playersById, match.teamA)}
+          ${aScores}
+        </div>
+        <div class="match-mid" aria-hidden="true"></div>
+        <div class="match-side">
+          ${teamNamesBlock(playersById, match.teamB)}
+          ${bScores}
+        </div>
       </div>
-      ${gameRows}
+      ${boards}
     </div>
   `;
 }
 
-function scoreInput(roundIndex, court, gameIndex, side, value, target, winByTwo) {
+function scorePicker(roundIndex, court, gameIndex, side, value, settings, roundKind, teamLabelText, typedKeys) {
   const shown = value == null || value === '' ? '' : String(value);
-  return `<input class="input score" inputmode="numeric" pattern="[0-9]*" type="text" maxlength="3"
-    data-action="score"
-    data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
-    data-target="${target ?? ''}" data-winbytwo="${winByTwo ? '1' : '0'}"
-    id="score-r${roundIndex}-c${court}-g${gameIndex}-${side}"
-    value="${esc(shown)}" aria-label="Счёт" />`;
+  const id = `score-r${roundIndex}-c${court}-g${gameIndex}-${side}`;
+  const typeMode = typedKeys.includes(id);
+  const max = scoreWheelMax(settings, roundKind);
+  const aria = teamLabelText ? `Счёт, ${teamLabelText}` : 'Счёт';
+  const items = ['']
+    .concat(Array.from({ length: max + 1 }, (_, n) => n))
+    .map((n) => {
+      const key = n === '' ? '' : String(n);
+      const on = shown === key;
+      return `<button type="button" class="wheel-item${on ? ' is-on' : ''}" data-action="score-wheel" data-n="${esc(key)}"
+        data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
+        role="option" aria-selected="${on ? 'true' : 'false'}">${n === '' ? '—' : n}</button>`;
+    })
+    .join('');
+  return `
+    <div class="score-picker${typeMode ? ' is-type' : ''}">
+      <div class="wheel-wrap${typeMode ? ' is-hidden' : ''}">
+        <div class="wheel" data-wheel data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
+          data-value="${esc(shown)}" role="listbox" aria-label="${esc(aria)}" tabindex="0">
+          <div class="wheel-pad" aria-hidden="true"></div>
+          ${items}
+          <div class="wheel-pad" aria-hidden="true"></div>
+        </div>
+        <div class="wheel-frame" aria-hidden="true"></div>
+      </div>
+      <input class="input score${typeMode ? '' : ' is-visually-hidden'}" inputmode="numeric" pattern="[0-9]*" type="text" maxlength="3"
+        data-action="score"
+        data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
+        id="${id}"
+        value="${esc(shown)}" aria-label="${esc(aria)}" ${typeMode ? '' : 'tabindex="-1"'} />
+      <button type="button" class="wheel-type-btn" data-action="score-type" data-id="${esc(id)}" data-mode="${typeMode ? 'type' : 'wheel'}">
+        ${typeMode ? 'Крутилка' : 'Клавиатура'}
+      </button>
+    </div>`;
 }
 
 function renderScoreboard(store, roundIndex, court, gameIndex, game) {

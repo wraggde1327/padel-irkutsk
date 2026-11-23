@@ -10,14 +10,23 @@ import {
 import { mulberry32 } from '../js/rng.js';
 import {
   applyTennisPoint,
+  autoFillGames,
   autoFillOther,
+  autoFillScore,
+  freezeRoundScoring,
+  isValidSetScore,
+  matchComplete,
   neededGames,
+  scoringSnapshot,
+  scoreWheelMax,
+  settingsForRound,
   tennisLabel,
 } from '../js/scoring.js';
 import { computeStandings, sortStandings } from '../js/standings.js';
 import { clearState, emptyStore, emptyTournament, loadState, saveState, STORAGE_KEY } from '../js/state.js';
-import { autoCourts, rotateSitters } from '../js/pairs.js';
+import { autoCourts, compactMatchLine, rotateSitters } from '../js/pairs.js';
 import { pointsTarget } from '../js/scoring.js';
+import { nearestWheelValue } from '../js/wheel.js';
 
 function players8() {
   const names = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
@@ -49,6 +58,11 @@ test('auto-fill: other = target − entered when win-by-2 is off', () => {
 
 test('needed games: points mode is always one set', () => {
   assert.equal(neededGames({ scoringMode: 'points', gamesPerPairing: 2, decidingGame: true }, 'regular', []), 1);
+});
+
+test('needed games: set-to-N is one score row', () => {
+  const settings = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: true };
+  assert.equal(neededGames(settings, 'regular', []), 1);
 });
 
 test('needed games: two plus decider at a tie', () => {
@@ -260,6 +274,111 @@ test('total-points target 16/21/24/32', () => {
   assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 16 }, 'regular'), 16);
   assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 'custom', customTotal: 32 }, 'regular'), 32);
   assert.equal(autoFillOther(13, 21, false), 8);
+});
+
+test('compact match line for collapsed rounds', () => {
+  const playersById = new Map([
+    ['p1', { id: 'p1', name: 'Иван' }],
+    ['p2', { id: 'p2', name: 'Маша' }],
+    ['p3', { id: 'p3', name: 'Пётр' }],
+    ['p4', { id: 'p4', name: 'Оля' }],
+  ]);
+  const match = { court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'] };
+  assert.equal(compactMatchLine(match, playersById, '21:15'), 'К1: Иван+Маша 21:15 Пётр+Оля');
+  assert.equal(compactMatchLine(match, playersById, ''), 'К1: Иван+Маша — Пётр+Оля');
+  assert.equal(
+    compactMatchLine({ ...match, sequence: 2 }, playersById, '15:7'),
+    'К1·2: Иван+Маша 15:7 Пётр+Оля',
+  );
+});
+
+test('games auto-fill: under N → N, N with/without decider', () => {
+  assert.equal(autoFillGames(4, 6, true), 6);
+  assert.equal(autoFillGames(5, 6, true), 6);
+  assert.equal(autoFillGames(6, 6, true), null);
+  assert.equal(autoFillGames(6, 6, false), 4);
+  assert.equal(autoFillGames(7, 7, true), null);
+  assert.equal(autoFillGames(6, 7, true), 7);
+  assert.equal(autoFillScore(4, { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: true }, 'regular'), 6);
+  assert.equal(autoFillScore(9, { scoringMode: 'points', pointsPreset: 15, winByTwo: false }, 'regular'), 6);
+});
+
+test('valid set score: N:N-1 with decider, else N:N-2', () => {
+  const sixDecider = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: true };
+  const sixNo = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: false };
+  const seven = { scoringMode: 'games', setScore: true, gamesToWin: 7, decidingGame: true };
+  assert.equal(isValidSetScore(6, 4, sixDecider), true);
+  assert.equal(isValidSetScore(6, 5, sixDecider), true);
+  assert.equal(isValidSetScore(6, 6, sixDecider), false);
+  assert.equal(isValidSetScore(7, 5, sixDecider), false);
+  assert.equal(isValidSetScore(6, 5, sixNo), false);
+  assert.equal(isValidSetScore(6, 4, sixNo), true);
+  assert.equal(isValidSetScore(7, 6, seven), true);
+  assert.equal(isValidSetScore(6, 4, seven), false);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 6, b: 4 }] }, sixDecider, 'regular'), true);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 6, b: 6 }] }, sixDecider, 'regular'), false);
+});
+
+test('freeze scoring on old rounds, new rounds use snapshot', () => {
+  const rounds = [{ id: 'r1', kind: 'regular', matches: [] }];
+  const settings = {
+    scoringMode: 'points',
+    pointsPreset: 15,
+    winByTwo: false,
+    gamesToWin: 6,
+    decidingGame: true,
+  };
+  freezeRoundScoring(rounds, settings);
+  assert.equal(rounds[0].scoring.scoringMode, 'points');
+  assert.equal(rounds[0].scoring.setScore, false);
+  settings.scoringMode = 'games';
+  settings.setScore = true;
+  assert.equal(settingsForRound(rounds[0], settings).scoringMode, 'points');
+  const next = scoringSnapshot(settings, { forNewRound: true });
+  assert.equal(next.scoringMode, 'games');
+  assert.equal(next.setScore, true);
+  assert.equal(next.gamesToWin, 6);
+});
+
+test('standings: games difference and mixed modes sum recorded numbers', () => {
+  const players = players8().slice(0, 4);
+  const rounds = [
+    {
+      kind: 'regular',
+      scoring: { scoringMode: 'points', pointsPreset: 15, winByTwo: false },
+      matches: [{ court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], games: [{ a: 15, b: 11 }] }],
+    },
+    {
+      kind: 'regular',
+      scoring: { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: true },
+      matches: [{ court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], games: [{ a: 6, b: 4 }] }],
+    },
+  ];
+  const rows = computeStandings(players, rounds, { scoringMode: 'games', setScore: true, gamesToWin: 6 });
+  const anna = rows.find((r) => r.id === 'p1');
+  assert.equal(anna.wins, 2);
+  assert.equal(anna.pointsFor, 21);
+  assert.equal(anna.pointsAgainst, 15);
+  assert.equal(anna.delta, 6);
+});
+
+test('score wheel max is target or N, nearest snap', () => {
+  assert.equal(scoreWheelMax({ scoringMode: 'points', pointsPreset: 15 }, 'regular'), 15);
+  assert.equal(scoreWheelMax({ scoringMode: 'games', gamesToWin: 6 }, 'regular'), 6);
+  assert.equal(scoreWheelMax({ scoringMode: 'total', totalPoints: 24 }, 'regular'), 24);
+  const items = ['', 0, 1, 2, 3].map((n, i) => ({
+    dataset: { n: n === '' ? '' : String(n) },
+    offsetTop: 44 + i * 44,
+    offsetHeight: 44,
+  }));
+  const el = {
+    scrollTop: 0,
+    clientHeight: 132,
+    querySelectorAll: () => items,
+  };
+  assert.equal(nearestWheelValue(el), null);
+  el.scrollTop = 44 * 3;
+  assert.equal(nearestWheelValue(el), 2);
 });
 
 test('12 players / 3 courts layout', () => {

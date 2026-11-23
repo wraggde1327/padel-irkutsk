@@ -63,6 +63,14 @@ function startServer() {
 }
 
 async function typeScore(page, locator, value) {
+  const id = await locator.getAttribute('id');
+  if (id) {
+    const typeBtn = page.locator(`[data-action="score-type"][data-id="${id}"]`);
+    if (await typeBtn.count()) {
+      const mode = await typeBtn.getAttribute('data-mode');
+      if (mode !== 'type') await typeBtn.click();
+    }
+  }
   await locator.click();
   await locator.fill('');
   await locator.type(String(value), { delay: 20 });
@@ -108,16 +116,9 @@ async function createViaUi(page, format, name) {
 }
 
 async function seedActiveSettings(page, patch) {
-  await page.evaluate(
-    ({ key, patch }) => {
-      const store = JSON.parse(localStorage.getItem(key));
-      const t = store.tournaments.find((x) => x.id === store.ui.activeId);
-      Object.assign(t.settings, patch);
-      localStorage.setItem(key, JSON.stringify(store));
-    },
-    { key: STORAGE_KEY, patch },
-  );
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.evaluate((patch) => {
+    window.padelTracker.patchActive(patch);
+  }, patch);
 }
 
 async function fillCurrentRound(page, a = 15, b = 7) {
@@ -128,7 +129,11 @@ async function fillCurrentRound(page, a = 15, b = 7) {
       const t = store.tournaments.find((x) => x.id === store.ui.activeId);
       const roundIndex = t.rounds.length - 1;
       const last = t.rounds[roundIndex];
-      const n = t.settings.scoringMode === 'games' ? Math.max(1, Number(t.settings.gamesPerPairing) || 1) : 1;
+      const settings = last.scoring ? { ...t.settings, ...last.scoring } : t.settings;
+      const n =
+        settings.scoringMode === 'games' && !settings.setScore
+          ? Math.max(1, Number(settings.gamesPerPairing) || 1)
+          : 1;
       for (const match of last.matches) {
         match.games = Array.from({ length: n }, () => ({ a, b, touched: { a: true, b: true } }));
       }
@@ -288,11 +293,32 @@ async function main() {
   await addPlayers(page, NAMES8);
   await page.click('[data-tab="play"]');
   await page.click('#btn-next-round');
-  await page.waitForSelector('.match');
+  await page.waitForSelector('.match-duel');
   let store = await readState(page);
   assert.equal(store.tournaments.length, 1);
   assert.equal(activeOf(store).settings.tournamentFormat, 'americano');
   assert.equal(activeOf(store).rounds[0].matches.length, 2);
+  assert.equal(await page.locator('.match-duel').count(), 2);
+  assert.ok((await page.locator('.match-side').count()) >= 4);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-match-layout.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-match-layout.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await fillCurrentRound(page, 21, 15);
+  await page.click('#btn-next-round');
+  await page.waitForFunction(() => document.querySelectorAll('.round').length === 2);
+  assert.equal(await page.locator('.round.is-collapsed').count(), 1);
+  assert.ok(await page.locator('.round.is-current .match-duel').count());
+  assert.match(await page.locator('.round.is-collapsed .round-summary-line').innerText(), /К1:/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-rounds-collapsed.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-rounds-collapsed.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('.round-toggle');
+  await page.waitForSelector('.round:not(.is-current) .match-duel');
+  assert.equal(await page.locator('.round.is-collapsed').count(), 0);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-round-expanded.png'), fullPage: true });
 
   await page.click('[data-action="go-home"]');
   await page.waitForSelector('#btn-create');
@@ -449,6 +475,53 @@ async function main() {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-table.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+
+  await resetApp(page);
+  await createViaUi(page, 'free', 'Теннис');
+  await seedActiveSettings(page, {
+    scoringMode: 'games',
+    setScore: true,
+    gamesToWin: 6,
+    decidingGame: true,
+    tournamentFormat: 'free',
+    pairLock: 'locked',
+    pairType: 'any',
+  });
+  await addPlayers(page, NAMES8);
+  await page.click('[data-tab="play"]');
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match-duel .wheel');
+  assert.ok(await page.locator('.wheel').count());
+  await page.locator('[data-action="score-wheel"][data-side="a"][data-n="4"]').first().evaluate((el) => el.click());
+  await page.waitForFunction(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    const g = t?.rounds[0]?.matches[0]?.games?.[0];
+    return g && g.a === 4 && g.b === 6;
+  });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-tennis-layout.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-tennis-layout.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-score-wheel.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-score-wheel.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fillCurrentRound(page, 6, 4);
+
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('[data-key="scoringMode"][data-value="points"]');
+  await page.click('[data-key="scoringMode"][data-value="points"]');
+  await page.click('[data-action="tab"][data-tab="play"]');
+  await page.waitForSelector('#btn-next-round');
+  store = await readState(page);
+  const tennis = activeOf(store);
+  assert.equal(tennis.rounds[0].scoring.scoringMode, 'games');
+  assert.equal(tennis.settings.scoringMode, 'points');
+  await page.click('#btn-next-round');
+  await page.waitForFunction(() => document.querySelectorAll('.round').length === 2);
+  store = await readState(page);
+  assert.equal(activeOf(store).rounds[1].scoring.scoringMode, 'points');
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await resetApp(page);
