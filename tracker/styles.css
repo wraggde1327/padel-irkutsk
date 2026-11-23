@@ -16,6 +16,8 @@
   --radius: 16px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --bar: rgba(249, 249, 249, 0.94);
+  --tab-off: #8e8e93;
   --wheel-item: 44px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
@@ -57,50 +59,58 @@
     --bad: #fca5a5;
     --danger: #f87171;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    --bar: rgba(28, 28, 30, 0.94);
+    --tab-off: #8e8e93;
   }
 }
 
 * { box-sizing: border-box; }
 html {
-  height: 100%;
-  height: -webkit-fill-available;
+  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
 }
 html, body {
   margin: 0;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
   overflow-x: hidden;
-  overscroll-behavior: none;
+  overflow-y: auto;
   overscroll-behavior-x: none;
   touch-action: pan-y;
   background: var(--bg);
 }
 body {
-  height: 100%;
-  height: -webkit-fill-available;
   min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   min-height: -webkit-fill-available;
   color: var(--fg);
   font-size: 16px;
   line-height: 1.4;
 }
-button, input, select { font: inherit; color: inherit; }
-#app {
-  --chrome-top: 0px;
-  --chrome-bottom: 0px;
+body::before {
+  content: '';
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
-  height: 100%;
-  height: -webkit-fill-available;
+  height: var(--safe-top);
+  background: var(--bg);
+  pointer-events: none;
+  z-index: 20;
+}
+button, input, select { font: inherit; color: inherit; }
+#app {
+  --chrome-bottom: 0px;
+  position: relative;
   width: 100%;
   max-width: 430px;
   margin: 0 auto;
-  display: block;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: visible;
   overflow-x: hidden;
   overscroll-behavior-x: none;
   touch-action: pan-y;
@@ -108,28 +118,30 @@ button, input, select { font: inherit; color: inherit; }
   background: var(--bg);
 }
 .top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   margin: 0;
-  padding: 8px 16px 10px;
-  padding-top: calc(16px + var(--safe-top));
+  padding: 0 16px;
+  padding-top: calc(8px + var(--safe-top));
   background: var(--bg);
-  z-index: 10;
+  z-index: 1;
+}
+.top-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+}
+.top .icon-btn {
+  width: 44px;
+  height: 44px;
 }
 #main {
-  position: absolute;
-  inset: 0;
-  min-height: 0;
-  overflow-y: auto;
+  position: relative;
+  overflow: visible;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
   overscroll-behavior-x: none;
   touch-action: pan-y;
-  padding: 0 16px;
-  padding-top: var(--chrome-top, 0px);
+  padding: 0 16px 16px;
   padding-bottom: var(--chrome-bottom, 0px);
   margin: 0;
 }
@@ -420,7 +432,7 @@ html.is-backup-open body {
   overscroll-behavior: none;
 }
 .picker-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 40;
   display: flex;
@@ -513,12 +525,8 @@ html.is-backup-open body {
 .is-hidden { display: none; }
 .danger-card { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
 .toast {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  top: var(--chrome-top, 0px);
-  z-index: 15;
-  margin: 0;
+  position: relative;
+  margin: 8px 16px 12px;
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--card);
@@ -527,32 +535,28 @@ html.is-backup-open body {
   font-size: 14px;
 }
 #import-ask {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  top: var(--chrome-top, 0px);
-  z-index: 12;
+  position: relative;
+  margin: 8px 16px 12px;
+  z-index: 2;
 }
 .tabs {
-  position: absolute;
+  position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 10;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  margin: 0;
+  margin: 0 auto;
   padding: 0;
   padding-bottom: var(--safe-bottom);
-  background: var(--bg);
-  border-top: 1px solid var(--border);
+  background: var(--bar);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border: 0;
   box-shadow: none;
   width: 100%;
-}
-.top-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
+  max-width: 430px;
 }
 .back-btn,
 .settings-btn,
@@ -560,7 +564,7 @@ html.is-backup-open body {
 .settings-btn svg,
 .backup-btn svg { display: block; margin: 0 auto; }
 .backup-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 40;
   display: flex;
@@ -614,15 +618,15 @@ html.is-backup-open body {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 2px;
+  gap: 1px;
   height: 49px;
   min-height: 49px;
-  padding: 6px 0 4px;
+  padding: 6px 0 3px;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--tab-off);
+  font-size: 10px;
   font-weight: 500;
   line-height: 1.1;
   cursor: pointer;
@@ -630,8 +634,8 @@ html.is-backup-open body {
 }
 .tab svg {
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
 }
 .tab.is-on {
@@ -677,5 +681,5 @@ html.is-backup-open body {
 .wizard-nav { margin-top: 16px; }
 .round.is-current { border-color: var(--fg); }
 @media (min-width: 720px) {
-  #app { max-width: 560px; }
+  #app, .tabs { max-width: 560px; }
 }

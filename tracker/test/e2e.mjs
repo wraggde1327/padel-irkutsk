@@ -21,6 +21,8 @@ const MIME = {
 
 const IPHONE_SAFE_TOP = 59;
 const IPHONE_SAFE_BOTTOM = 34;
+const IPHONE_SE_SAFE_TOP = 20;
+const IPHONE_SE_SAFE_BOTTOM = 0;
 
 const NAMES8 = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
 const NAMES9 = [...NAMES8, 'Кира'];
@@ -68,9 +70,9 @@ function startServer() {
   });
 }
 
-function iphoneSafeCss(active) {
-  const top = active ? IPHONE_SAFE_TOP : 0;
-  const bottom = active ? IPHONE_SAFE_BOTTOM : 0;
+function iphoneSafeCss(active, topInset = IPHONE_SAFE_TOP, bottomInset = IPHONE_SAFE_BOTTOM) {
+  const top = active ? topInset : 0;
+  const bottom = active ? bottomInset : 0;
   return `
     :root {
       --safe-top: ${top}px;
@@ -86,18 +88,18 @@ function iphoneSafeCss(active) {
     }
     #iphone-safe-top {
       top: 0;
-      height: ${IPHONE_SAFE_TOP}px;
+      height: ${top}px;
       background: rgb(24 24 27 / 0.38);
     }
     #iphone-safe-bottom {
       bottom: 0;
-      height: ${IPHONE_SAFE_BOTTOM}px;
+      height: ${bottom}px;
       background: rgb(24 24 27 / 0.22);
     }
   `;
 }
 
-async function setIphoneSafe(page, active) {
+async function setIphoneSafe(page, active, insets = { top: IPHONE_SAFE_TOP, bottom: IPHONE_SAFE_BOTTOM }) {
   await page.evaluate((state) => {
     if (!document.getElementById('iphone-safe-top')) {
       const top = document.createElement('div');
@@ -111,8 +113,8 @@ async function setIphoneSafe(page, active) {
     document.documentElement.style.setProperty('--safe-top', `${topPx}px`);
     document.documentElement.style.setProperty('--safe-bottom', `${bottomPx}px`);
     window.dispatchEvent(new Event('resize'));
-  }, { active, top: IPHONE_SAFE_TOP, bottom: IPHONE_SAFE_BOTTOM });
-  await page.addStyleTag({ content: iphoneSafeCss(active) });
+  }, { active, top: insets.top, bottom: insets.bottom });
+  await page.addStyleTag({ content: iphoneSafeCss(active, insets.top, insets.bottom) });
 }
 
 async function typeScore(page, locator, value) {
@@ -354,24 +356,37 @@ async function main() {
     const html = getComputedStyle(document.documentElement);
     const body = getComputedStyle(document.body);
     const main = getComputedStyle(document.getElementById('main'));
+    const app = getComputedStyle(document.getElementById('app'));
     return {
-      htmlOverflow: html.overflow,
-      bodyOverflow: body.overflow,
-      htmlOverscroll: html.overscrollBehavior,
+      htmlOx: html.overflowX,
+      htmlOy: html.overflowY,
+      bodyOx: body.overflowX,
+      bodyOy: body.overflowY,
+      htmlOverX: html.overscrollBehaviorX,
+      htmlOverY: html.overscrollBehaviorY,
+      bodyOverX: body.overscrollBehaviorX,
+      bodyOverY: body.overscrollBehaviorY,
       mainOverflow: main.overflowY,
+      appPos: app.position,
     };
   });
-  assert.equal(layout.htmlOverflow, 'hidden');
-  assert.equal(layout.bodyOverflow, 'hidden');
-  assert.match(String(layout.htmlOverscroll), /^none/);
-  assert.equal(layout.mainOverflow, 'auto');
+  assert.equal(layout.htmlOx, 'hidden');
+  assert.equal(layout.bodyOx, 'hidden');
+  assert.match(layout.htmlOy, /auto|scroll|visible/);
+  assert.match(layout.bodyOy, /auto|scroll|visible/);
+  assert.match(String(layout.htmlOverX), /^none/);
+  assert.match(String(layout.bodyOverX), /^none/);
+  assert.doesNotMatch(String(layout.htmlOverY), /^none$/);
+  assert.doesNotMatch(String(layout.bodyOverY), /^none$/);
+  assert.match(layout.mainOverflow, /visible|auto/);
+  assert.equal(layout.appPos, 'relative');
   const sw = await page.evaluate(async () => {
     const res = await fetch('./sw.js');
     const text = await res.text();
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.10');
+  assert.equal(sw.version, '0.7.11');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -388,10 +403,13 @@ async function main() {
   assert.doesNotMatch(cssText, /max\(var\(--safe-bottom\)/);
   assert.doesNotMatch(cssText, /var\(--safe-bottom\)\s*\*\s*0\.5/);
   assert.match(cssText, /\.tabs\s*\{[^}]*padding-bottom:\s*var\(--safe-bottom\)/s);
-  assert.match(cssText, /--chrome-top/);
   assert.match(cssText, /--chrome-bottom/);
+  assert.match(cssText, /rgba\(249,\s*249,\s*249,\s*0\.94\)/);
+  assert.match(cssText, /#8e8e93/);
+  assert.match(cssText, /backdrop-filter:\s*saturate\(180%\)\s*blur\(20px\)/);
   assert.doesNotMatch(cssText, /\.tabs-track/);
   assert.doesNotMatch(cssText, /\.tabs::before/);
+  assert.doesNotMatch(cssText, /\.tabs\s*\{[^}]*border-top:\s*1px/s);
   const shell = await page.evaluate(() => {
     const app = document.getElementById('app');
     const cs = getComputedStyle(app);
@@ -409,14 +427,11 @@ async function main() {
       vh: window.innerHeight,
     };
   });
-  assert.equal(shell.position, 'fixed');
-  assert.equal(shell.top, '0px');
-  assert.equal(shell.bottom, '0px');
+  assert.equal(shell.position, 'relative');
   assert.equal(shell.htmlPad, '0px');
   assert.equal(shell.bodyPos, 'static');
   assert.equal(shell.bodyBg, 'rgb(244, 244, 245)');
   assert.equal(shell.appTop, 0);
-  assert.equal(shell.appBottom, shell.vh);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-home.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-home.png'), fullPage: true });
@@ -456,13 +471,11 @@ async function main() {
   assert.equal(await page.locator('header [data-action="open-settings"]').getAttribute('aria-label'), 'Настройки турнира');
   await page.waitForFunction(() => {
     const app = document.getElementById('app');
-    const top = document.querySelector('.top');
     const tabs = document.querySelector('.tabs');
     const main = document.getElementById('main');
-    if (!app || !top || !tabs || !main) return false;
-    const chromeTop = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-top')) || 0;
+    if (!app || !tabs || !main) return false;
     const chromeBot = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-bottom')) || 0;
-    return chromeTop > 20 && chromeBot >= 48;
+    return chromeBot >= 48;
   });
   const chrome = await page.evaluate(() => {
     const tabs = document.querySelector('.tabs');
@@ -479,23 +492,27 @@ async function main() {
     const tabsBox = tabs.getBoundingClientRect();
     const mainBox = main.getBoundingClientRect();
     const topBox = top.getBoundingClientRect();
-    const chromeTop = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-top')) || 0;
+    const off = document.querySelector('.tab:not(.is-on)');
     const chromeBot = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-bottom')) || 0;
     return {
       tabsPadBottom: ts?.paddingBottom,
       tabsPadTop: ts?.paddingTop,
       tabsPadLeft: ts?.paddingLeft,
       tabsBg: ts?.backgroundColor,
+      tabsBorder: ts?.borderTopWidth,
       topBg: topCs.backgroundColor,
       appBg: getComputedStyle(app).backgroundColor,
       hasPicker: Boolean(document.querySelector('.picker-backdrop')),
       tabH: tab ? tab.getBoundingClientRect().height : 0,
       tabOnBg: tabCs?.backgroundColor,
       tabOnColor: tabCs?.color,
+      tabOffColor: off ? getComputedStyle(off).color : '',
+      tabFont: tabCs?.fontSize,
       tabRadius: tabCs?.borderRadius,
       tabPos: ts?.position,
       topPos: topCs.position,
       mainPos: getComputedStyle(main).position,
+      rowH: document.querySelector('.top-row')?.getBoundingClientRect().height || 0,
       hasTrack: Boolean(document.querySelector('.tabs-track')),
       hasTournamentEyebrow: Boolean(document.querySelector('.top .eyebrow')),
       hasIcon: Boolean(icon),
@@ -509,52 +526,47 @@ async function main() {
       topPadTop: top ? getComputedStyle(top).paddingTop : '',
       h1Top: h1 ? h1.getBoundingClientRect().top : 0,
       appTop: appBox.top,
-      appBottom: appBox.bottom,
       tabsBottom: tabsBox.bottom,
-      mainTop: mainBox.top,
-      mainBottom: mainBox.bottom,
       topH: topBox.height,
       tabsH: tabsBox.height,
-      chromeTop,
       chromeBot,
-      mainPadTop: parseFloat(getComputedStyle(main).paddingTop),
       mainPadBottom: parseFloat(getComputedStyle(main).paddingBottom),
       vh: window.innerHeight,
     };
   });
-  assert.equal(chrome.appPos, 'fixed');
-  assert.equal(chrome.topPos, 'absolute');
-  assert.equal(chrome.tabPos, 'absolute');
-  assert.equal(chrome.mainPos, 'absolute');
+  assert.equal(chrome.appPos, 'relative');
+  assert.equal(chrome.topPos, 'relative');
+  assert.equal(chrome.tabPos, 'fixed');
+  assert.equal(chrome.mainPos, 'relative');
   assert.equal(chrome.htmlPadTop, '0px');
   assert.equal(chrome.htmlPadBottom, '0px');
   assert.equal(chrome.bodyPadBottom, '0px');
   assert.equal(chrome.appPadTop, '0px');
   assert.equal(chrome.appPadBottom, '0px');
-  assert.equal(chrome.topPadTop, '16px');
+  assert.equal(chrome.topPadTop, '8px');
   assert.equal(chrome.tabsPadBottom, '0px');
   assert.equal(chrome.tabsPadTop, '0px');
   assert.equal(chrome.tabsPadLeft, '0px');
+  assert.equal(chrome.tabsBorder, '0px');
   assert.equal(chrome.hasTrack, false);
   assert.equal(chrome.hasTournamentEyebrow, false);
   assert.equal(chrome.hasIcon, true);
-  assert.ok(Math.abs(chrome.iconH - 24) < 1, `icon height ${chrome.iconH}`);
+  assert.ok(Math.abs(chrome.iconH - 26) < 1, `icon height ${chrome.iconH}`);
   assert.ok(chrome.tabH >= 48 && chrome.tabH <= 50, `tab height ${chrome.tabH}`);
-  assert.equal(chrome.tabsBg, 'rgb(244, 244, 245)');
+  assert.ok(chrome.rowH >= 43 && chrome.rowH <= 52, `title row ${chrome.rowH}`);
+  assert.equal(chrome.tabFont, '10px');
+  assert.equal(chrome.tabsBg, 'rgba(249, 249, 249, 0.94)');
   assert.equal(chrome.topBg, 'rgb(244, 244, 245)');
   assert.equal(chrome.appBg, 'rgb(244, 244, 245)');
+  assert.notEqual(chrome.tabsBg, chrome.appBg);
   assert.equal(chrome.hasPicker, false);
   assert.equal(chrome.tabOnBg, 'rgba(0, 0, 0, 0)');
   assert.equal(chrome.tabOnColor, 'rgb(63, 63, 70)');
+  assert.equal(chrome.tabOffColor, 'rgb(142, 142, 147)');
   assert.equal(chrome.tabRadius, '0px');
-  assert.equal(chrome.appTop, 0);
-  assert.equal(chrome.appBottom, chrome.vh);
   assert.equal(chrome.tabsBottom, chrome.vh);
-  assert.equal(chrome.mainTop, 0);
-  assert.equal(chrome.mainBottom, chrome.vh);
-  assert.ok(Math.abs(chrome.chromeTop - chrome.topH) <= 1, `chrome-top ${chrome.chromeTop} vs header ${chrome.topH}`);
+  assert.ok(Math.abs(chrome.tabsH - 49) <= 1, `tabs height ${chrome.tabsH}`);
   assert.ok(Math.abs(chrome.chromeBot - chrome.tabsH) <= 1, `chrome-bottom ${chrome.chromeBot} vs tabs ${chrome.tabsH}`);
-  assert.ok(Math.abs(chrome.mainPadTop - chrome.topH) <= 1, `main pad-top ${chrome.mainPadTop} vs header ${chrome.topH}`);
   assert.ok(Math.abs(chrome.mainPadBottom - chrome.tabsH) <= 1, `main pad-bottom ${chrome.mainPadBottom} vs tabs ${chrome.tabsH}`);
   const swipe = await page.evaluate(() => {
     const app = getComputedStyle(document.getElementById('app'));
@@ -591,12 +603,10 @@ async function main() {
     if (!top || !tabs || !main || !app) return false;
     const topPad = parseFloat(getComputedStyle(top).paddingTop);
     const tabsPad = parseFloat(getComputedStyle(tabs).paddingBottom);
-    const chromeTop = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-top')) || 0;
     const chromeBot = parseFloat(getComputedStyle(app).getPropertyValue('--chrome-bottom')) || 0;
     return (
-      Math.abs(topPad - (16 + inset.top)) < 1 &&
+      Math.abs(topPad - (8 + inset.top)) < 1 &&
       Math.abs(tabsPad - inset.bottom) < 1 &&
-      Math.abs(chromeTop - top.getBoundingClientRect().height) <= 1 &&
       Math.abs(chromeBot - tabs.getBoundingClientRect().height) <= 1
     );
   }, { top: IPHONE_SAFE_TOP, bottom: IPHONE_SAFE_BOTTOM });
@@ -646,9 +656,9 @@ async function main() {
       insets,
     };
   }, { top: IPHONE_SAFE_TOP, bottom: IPHONE_SAFE_BOTTOM });
-  assert.ok(Math.abs(safeChrome.topPad - (16 + IPHONE_SAFE_TOP)) < 1, `header pad ${safeChrome.topPad}`);
+  assert.ok(Math.abs(safeChrome.topPad - (8 + IPHONE_SAFE_TOP)) < 1, `header pad ${safeChrome.topPad}`);
   assert.equal(safeChrome.hasEyebrow, false);
-  assert.ok(safeChrome.h1Top >= IPHONE_SAFE_TOP + 16, `title under status bar at ${safeChrome.h1Top}`);
+  assert.ok(safeChrome.h1Top >= IPHONE_SAFE_TOP + 8, `title under status bar at ${safeChrome.h1Top}`);
   assert.ok(
     Math.abs(safeChrome.tabsPadBottom - IPHONE_SAFE_BOTTOM) < 1,
     `tabs pad ${safeChrome.tabsPadBottom}`,
@@ -660,24 +670,46 @@ async function main() {
   assert.equal(safeChrome.bodyBg, 'rgb(244, 244, 245)');
   assert.equal(safeChrome.appBg, 'rgb(244, 244, 245)');
   assert.equal(safeChrome.topBg, 'rgb(244, 244, 245)');
-  assert.equal(safeChrome.tabsBg, 'rgb(244, 244, 245)');
+  assert.equal(safeChrome.tabsBg, 'rgba(249, 249, 249, 0.94)');
   assert.equal(safeChrome.hasPicker, false);
-  assert.equal(safeChrome.appTop, 0);
-  assert.equal(safeChrome.appBottom, safeChrome.vh);
   assert.equal(safeChrome.tabsBottom, safeChrome.vh);
-  assert.equal(safeChrome.mainTop, 0);
-  assert.equal(safeChrome.mainBottom, safeChrome.vh);
-  assert.ok(Math.abs(safeChrome.mainPadTop - safeChrome.topH) <= 1, `main pad-top ${safeChrome.mainPadTop}`);
+  assert.ok(Math.abs(safeChrome.tabsH - (49 + IPHONE_SAFE_BOTTOM)) <= 1, `tabs total ${safeChrome.tabsH}`);
   assert.ok(Math.abs(safeChrome.mainPadBottom - safeChrome.tabsH) <= 1, `main pad-bottom ${safeChrome.mainPadBottom}`);
-  const labelExpected = safeChrome.vh - IPHONE_SAFE_BOTTOM - 4;
   assert.ok(
-    Math.abs(safeChrome.labelBottom - labelExpected) <= 2,
-    `tab label bottom ${safeChrome.labelBottom}, expected ~${labelExpected}`,
+    safeChrome.labelBottom <= safeChrome.vh - IPHONE_SAFE_BOTTOM + 1 &&
+      safeChrome.labelBottom >= safeChrome.vh - IPHONE_SAFE_BOTTOM - 12,
+    `tab label bottom ${safeChrome.labelBottom}`,
   );
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-safe-play.png') });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-iphone-safe-play.png') });
+  await page.setViewportSize({ width: 375, height: 667 });
+  await setIphoneSafe(page, true, { top: IPHONE_SE_SAFE_TOP, bottom: IPHONE_SE_SAFE_BOTTOM });
+  await page.waitForFunction((inset) => {
+    const top = document.querySelector('.top');
+    const tabs = document.querySelector('.tabs');
+    if (!top || !tabs) return false;
+    const topPad = parseFloat(getComputedStyle(top).paddingTop);
+    const tabsPad = parseFloat(getComputedStyle(tabs).paddingBottom);
+    return Math.abs(topPad - (8 + inset.top)) < 1 && Math.abs(tabsPad - inset.bottom) < 1;
+  }, { top: IPHONE_SE_SAFE_TOP, bottom: IPHONE_SE_SAFE_BOTTOM });
+  const seChrome = await page.evaluate(() => {
+    const tabs = document.querySelector('.tabs');
+    const top = document.querySelector('.top');
+    return {
+      topPad: parseFloat(getComputedStyle(top).paddingTop),
+      tabsPad: parseFloat(getComputedStyle(tabs).paddingBottom),
+      tabsH: tabs.getBoundingClientRect().height,
+      h1Top: document.querySelector('.top h1').getBoundingClientRect().top,
+    };
+  });
+  assert.ok(Math.abs(seChrome.topPad - (8 + IPHONE_SE_SAFE_TOP)) < 1, `SE header pad ${seChrome.topPad}`);
+  assert.equal(seChrome.tabsPad, 0);
+  assert.ok(Math.abs(seChrome.tabsH - 49) <= 1, `SE tabs ${seChrome.tabsH}`);
+  assert.ok(seChrome.h1Top >= IPHONE_SE_SAFE_TOP + 8, `SE title ${seChrome.h1Top}`);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-375-iphone-se-play.png') });
   await page.setViewportSize({ width: 390, height: 844 });
+  await setIphoneSafe(page, true, { top: IPHONE_SAFE_TOP, bottom: IPHONE_SAFE_BOTTOM });
   await page.click('[data-action="go-home"]');
   await page.waitForSelector('#btn-create');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-safe-home.png') });
@@ -737,16 +769,27 @@ async function main() {
   assert.equal(await page.locator('#btn-finish').count(), 0);
   assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
   await page.waitForSelector('[data-key="scoringMode"]');
+  const headerStartTop = await page.evaluate(() => document.querySelector('.top').getBoundingClientRect().top);
   const scrolled = await page.evaluate(() => {
-    const main = document.getElementById('main');
-    main.scrollTop = 280;
-    return main.scrollTop;
+    const el = document.scrollingElement || document.documentElement;
+    el.scrollTop = 280;
+    return {
+      scroll: el.scrollTop,
+      headerTop: document.querySelector('.top').getBoundingClientRect().top,
+      tabsBottom: document.querySelector('.tabs').getBoundingClientRect().bottom,
+      vh: window.innerHeight,
+    };
   });
-  assert.ok(scrolled > 40, `settings did not scroll (${scrolled})`);
+  assert.ok(scrolled.scroll > 40, `settings did not scroll (${scrolled.scroll})`);
+  assert.ok(
+    scrolled.headerTop < headerStartTop - 40,
+    `header did not scroll ${headerStartTop} -> ${scrolled.headerTop}`,
+  );
+  assert.equal(scrolled.tabsBottom, scrolled.vh);
   await page.click('[data-key="scoringMode"][data-value="games"]');
   await page.waitForTimeout(80);
-  const afterScroll = await page.evaluate(() => document.getElementById('main').scrollTop);
-  assert.ok(Math.abs(afterScroll - scrolled) < 12, `scroll jumped ${scrolled} -> ${afterScroll}`);
+  const afterScroll = await page.evaluate(() => (document.scrollingElement || document.documentElement).scrollTop);
+  assert.ok(Math.abs(afterScroll - scrolled.scroll) < 12, `scroll jumped ${scrolled.scroll} -> ${afterScroll}`);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-finish.png'), fullPage: true });
   await page.click('[data-tab="play"]');
   await page.waitForSelector('#btn-finish');
