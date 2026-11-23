@@ -88,6 +88,19 @@ export function sortStandings(rows, sort) {
   return copy;
 }
 
+const MEDALS = ['🥇', '🥈', '🥉'];
+
+/** Медали 1–3 и 🎉 лучшая девушка (по полу F). Без женщин или без пола — без 🎉. */
+export function standingMarks(rows) {
+  const hasGender = rows.some((r) => r.gender === 'F' || r.gender === 'M');
+  const bestWomanId = hasGender ? rows.find((r) => r.gender === 'F')?.id || null : null;
+  return rows.map((r, i) => ({
+    id: r.id,
+    medal: i < 3 ? MEDALS[i] : '',
+    bestWoman: Boolean(bestWomanId && r.id === bestWomanId),
+  }));
+}
+
 function compareStandings(a, b, sort) {
   if (sort === 'wins') {
     if (b.wins !== a.wins) return b.wins - a.wins;

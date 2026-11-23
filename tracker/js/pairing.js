@@ -2,6 +2,7 @@ import { shuffle } from './rng.js';
 import { countedGames, gamesSum } from './scoring.js';
 import { nextFormatRound } from './formats.js';
 import { nextFreeRound } from './fixed.js';
+import { assertRoundKindAllowed } from './qualification.js';
 import {
   autoCourts,
   bestPairingOfFour,
@@ -214,6 +215,7 @@ export function generateRound({
   rng = Math.random,
 }) {
   assertRoster(players, settings);
+  assertRoundKindAllowed(settings, rounds, kind);
   const mixed = mixedWanted(settings);
   const playersById = playersByIdMap(players);
 

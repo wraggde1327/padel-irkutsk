@@ -24,7 +24,12 @@ import {
   tennisLabel,
   POINTS_PRESETS,
 } from '../js/scoring.js';
-import { computeStandings, sortStandings } from '../js/standings.js';
+import { computeStandings, sortStandings, standingMarks } from '../js/standings.js';
+import {
+  assertRoundKindAllowed,
+  mustStartWithQualifying,
+  qualificationTooLate,
+} from '../js/qualification.js';
 import { clearState, emptyStore, emptyTournament, loadState, saveState, STORAGE_KEY } from '../js/state.js';
 import { autoCourts, compactMatchLine, compactSittingLine, rotateSitters } from '../js/pairs.js';
 import { isTapGesture, nearestWheelValue } from '../js/wheel.js';
@@ -128,6 +133,76 @@ test('mixed ranking uses opposite gender as last partner', () => {
   for (const [a, b] of pairs) {
     assert.notEqual(a.gender, b.gender);
   }
+});
+
+test('standing marks: medals and best woman, skip 🎉 without gender', () => {
+  const mixed = standingMarks([
+    { id: 'm1', name: 'Борис', gender: 'M' },
+    { id: 'f1', name: 'Анна', gender: 'F' },
+    { id: 'm2', name: 'Глеб', gender: 'M' },
+    { id: 'f2', name: 'Вера', gender: 'F' },
+  ]);
+  assert.equal(mixed[0].medal, '🥇');
+  assert.equal(mixed[1].medal, '🥈');
+  assert.equal(mixed[2].medal, '🥉');
+  assert.equal(mixed[3].medal, '');
+  assert.equal(mixed[0].bestWoman, false);
+  assert.equal(mixed[1].bestWoman, true);
+  assert.equal(mixed[2].bestWoman, false);
+  const topWoman = standingMarks([
+    { id: 'f1', name: 'Анна', gender: 'F' },
+    { id: 'm1', name: 'Борис', gender: 'M' },
+    { id: 'm2', name: 'Глеб', gender: 'M' },
+  ]);
+  assert.equal(topWoman[0].medal, '🥇');
+  assert.equal(topWoman[0].bestWoman, true);
+  const noGender = standingMarks([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }]);
+  assert.ok(noGender.every((m) => !m.bestWoman));
+  assert.equal(noGender[0].medal, '🥇');
+  const menOnly = standingMarks([
+    { id: 'm1', name: 'Борис', gender: 'M' },
+    { id: 'm2', name: 'Глеб', gender: 'M' },
+  ]);
+  assert.ok(menOnly.every((m) => !m.bestWoman));
+});
+
+test('qualification must be first when enabled, then hidden after a regular first round', () => {
+  const settings = { qualifyingEnabled: true, courts: 2, pairType: 'any' };
+  assert.equal(mustStartWithQualifying(settings, []), true);
+  assert.throws(
+    () => assertRoundKindAllowed(settings, [], 'regular'),
+    /Сначала сыграйте квалификацию/,
+  );
+  assert.doesNotThrow(() => assertRoundKindAllowed(settings, [], 'qualifying'));
+  const afterQual = [{ kind: 'qualifying', matches: [{ games: [{ a: 15, b: 10 }] }] }];
+  assert.equal(mustStartWithQualifying(settings, afterQual), false);
+  assert.doesNotThrow(() => assertRoundKindAllowed(settings, afterQual, 'regular'));
+  assert.throws(() => assertRoundKindAllowed(settings, afterQual, 'qualifying'), /уже была/);
+  const firstRegularDone = (round) =>
+    round.matches.every((m) => (m.games || []).some((g) => g.a != null && g.b != null));
+  const regularDone = [{ kind: 'regular', matches: [{ games: [{ a: 15, b: 10 }] }] }];
+  assert.equal(qualificationTooLate(regularDone, firstRegularDone), true);
+  assert.equal(mustStartWithQualifying(settings, regularDone), false);
+  assert.throws(() => assertRoundKindAllowed(settings, regularDone, 'qualifying'), /только первым кругом/);
+  const regularOpen = [{ kind: 'regular', matches: [{ games: [] }] }];
+  assert.equal(qualificationTooLate(regularOpen, firstRegularDone), false);
+  assert.throws(
+    () =>
+      generateRound({
+        players: players8(),
+        settings: { ...settings, pairLock: 'unlocked', tournamentFormat: 'free' },
+        kind: 'regular',
+        rng: mulberry32(1),
+      }),
+    /Сначала сыграйте квалификацию/,
+  );
+  const qualRound = generateRound({
+    players: players8(),
+    settings: { ...settings, pairLock: 'unlocked', tournamentFormat: 'free' },
+    kind: 'qualifying',
+    rng: mulberry32(1),
+  });
+  assert.equal(qualRound.matches.length, 2);
 });
 
 test('qualifying is reproducible with a seed and uses all eight players', () => {
