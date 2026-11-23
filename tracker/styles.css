@@ -167,6 +167,58 @@ h3, h4 { margin: 0 0 8px; font-size: 15px; font-weight: 650; }
   padding: 16px;
   box-shadow: var(--shadow);
 }
+.file-card-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  margin: -8px 0;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.file-card-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+.file-card-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.22s ease;
+}
+.file-card.is-open .file-card-chevron {
+  transform: rotate(0deg);
+}
+.file-card-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.file-card.is-open .file-card-body {
+  grid-template-rows: 1fr;
+}
+.file-card-body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.file-card.is-open .file-card-body-inner {
+  padding-top: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-card-body,
+  .file-card-chevron {
+    transition: none;
+  }
+}
 .hint { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
 .empty { color: var(--muted); list-style: none; padding: 8px 0; }
 .player-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

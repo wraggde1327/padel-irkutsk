@@ -977,12 +977,19 @@ function renderSettings(store, tournament) {
               })
         }
       </div>
-      <div class="card">
-        <h2>Файл этого турнира</h2>
-        <p class="hint">Экспорт только его. Импорт — добавить как новый или заменить этот, не молча.</p>
-        <div class="actions">
-          <button type="button" class="btn btn-ghost" data-action="export-one">Экспорт этого</button>
-          ${finished ? '' : '<button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>'}
+      <div class="card file-card ${store.ui.fileCardOpen ? 'is-open' : ''}" id="file-card">
+        <button type="button" class="file-card-toggle" data-action="toggle-file-card" aria-expanded="${store.ui.fileCardOpen ? 'true' : 'false'}" aria-controls="file-card-body">
+          <span class="file-card-title">Файл этого турнира</span>
+          <svg class="file-card-chevron" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>
+        </button>
+        <div class="file-card-body" id="file-card-body">
+          <div class="file-card-body-inner">
+            <p class="hint">Экспорт только его. Импорт — добавить как новый или заменить этот, не молча.</p>
+            <div class="actions">
+              <button type="button" class="btn btn-ghost" data-action="export-one">Экспорт этого</button>
+              ${finished ? '' : '<button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>'}
+            </div>
+          </div>
         </div>
       </div>
       ${
