@@ -266,6 +266,27 @@ h3, h4 { margin: 0 0 8px; font-size: 15px; font-weight: 650; }
 }
 .callout p { margin: 0 0 8px; }
 .sheet { border-color: var(--fg); }
+.summary-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.summary-line span { flex: 1; }
+.summary-edit {
+  flex-shrink: 0;
+  margin: 0;
+  min-height: 44px;
+  padding: 8px 4px;
+}
+.play-bar { padding: 12px; }
+.play-bar .actions { margin: 0; }
+.wizard-nav { margin-top: 16px; }
+.round.is-current { border-color: var(--fg); }
 @media (min-width: 720px) {
   #app, .tabs { max-width: 560px; }
 }

@@ -55,12 +55,13 @@ export function gamesSum(games) {
 }
 
 /**
- * Сколько игр должна сыграть пара.
- * Квалификация — одна игра. Обычный круг — gamesPerPairing, плюс решающая при ничьей.
+ * Сколько игр в матче.
+ * Квалификация и очки — один сет. Теннисные геймы — N геймов, плюс решающий при ничьей.
  */
 export function neededGames(settings, roundKind, games) {
   if (roundKind === 'qualifying') return 1;
-  const base = Math.max(1, Number(settings.gamesPerPairing) || 2);
+  if (settings.scoringMode !== 'games') return 1;
+  const base = Math.max(1, Number(settings.gamesPerPairing) || 1);
   if (!settings.decidingGame) return base;
   const played = (games || []).slice(0, base).filter(isGameComplete);
   if (played.length < base) return base;

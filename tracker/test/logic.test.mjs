@@ -45,8 +45,12 @@ test('auto-fill: other = target − entered when win-by-2 is off', () => {
   assert.equal(autoFillOther(11, 15, true), null);
 });
 
+test('needed games: points mode is always one set', () => {
+  assert.equal(neededGames({ scoringMode: 'points', gamesPerPairing: 2, decidingGame: true }, 'regular', []), 1);
+});
+
 test('needed games: two plus decider at a tie', () => {
-  const settings = { gamesPerPairing: 2, decidingGame: true };
+  const settings = { scoringMode: 'games', gamesPerPairing: 2, decidingGame: true };
   assert.equal(neededGames(settings, 'regular', []), 2);
   assert.equal(
     neededGames(settings, 'regular', [
@@ -140,6 +144,7 @@ test('random mix prefers unused partners', () => {
     players,
     settings,
     kind: 'regular',
+    method: 'random',
     rng: mulberry32(7),
   });
   const second = generateRound({
@@ -148,6 +153,7 @@ test('random mix prefers unused partners', () => {
     standings: [],
     rounds: [{ kind: 'regular', matches: first.matches }],
     kind: 'regular',
+    method: 'random',
     rng: mulberry32(8),
   });
   const before = partnerCounts([{ matches: first.matches }]);
@@ -233,7 +239,7 @@ test('12 players / 3 courts layout', () => {
   }));
   const { matches } = generateRound({
     players,
-    settings: { courts: 3, pairType: 'any', pairMethod: 'ranking', kingOfTheCourt: false },
+    settings: { courts: 3, pairType: 'any', pairLock: 'unlocked', tournamentFormat: 'free' },
     kind: 'regular',
     rng: mulberry32(1),
   });

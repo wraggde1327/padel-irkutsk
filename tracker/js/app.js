@@ -1,4 +1,5 @@
-import { generateRound, kingOfTheCourtGroups, expectedPlayerCount } from './pairing.js';
+import { generateRound, kingOfTheCourtGroups, expectedPlayerCount, genderCounts } from './pairing.js';
+import { wizardSteps } from './render.js';
 import {
   autoFillOther,
   applyTennisPoint,
@@ -82,7 +83,12 @@ function roundIsComplete(round) {
 }
 
 function roundHasScores(round) {
-  return Boolean(round && round.matches.some((m) => (m.games || []).some(isGameComplete)));
+  return Boolean(
+    round &&
+      round.matches.some((m) =>
+        (m.games || []).some((g) => g && ((g.a != null && g.a !== '') || (g.b != null && g.b !== ''))),
+      ),
+  );
 }
 
 /** Незаконченный круг: либо выкинуть, либо оставить сыгранное и закрыть. */
@@ -126,7 +132,7 @@ function generate(kind, method = null) {
       kind,
       courtGroups,
       method,
-      rankMode: state.ui.sort === 'delta' ? 'delta' : 'points',
+      fixedPairs: state.fixedPairs,
     });
     const round = {
       id: `r${state.nextRoundNum}`,
@@ -137,9 +143,11 @@ function generate(kind, method = null) {
       note: result.note || '',
       courtGroups: result.courtGroups || null,
       playerOrder: result.playerOrder || null,
+      fixedPairs: result.fixedPairs || null,
       override: Boolean(result.override || method),
       closedEarly: false,
     };
+    if (result.fixedPairs) state.fixedPairs = result.fixedPairs;
     for (const match of round.matches) ensureMatchGames(match, state.settings, kind);
     state.nextRoundNum += 1;
     state.rounds.push(round);
@@ -203,12 +211,80 @@ function setScore(roundIndex, court, gameIndex, side, raw, target, winByTwo, fro
     if (otherEl instanceof HTMLInputElement) otherEl.value = String(filledOther.other);
   }
   const afterSlots = neededGames(state.settings, round.kind, match.games);
+  maybeOfferRebuild(roundIndex);
   window.clearTimeout(scorePaintTimer);
   if (afterSlots !== beforeSlots) {
     paint();
     return;
   }
   scorePaintTimer = window.setTimeout(() => paint(), 180);
+}
+
+function maybeOfferRebuild(editedIndex) {
+  const next = state.rounds[editedIndex + 1];
+  if (!next) {
+    state.ui.rebuildOffer = null;
+    return;
+  }
+  const hasScores = next.matches.some((m) => (m.games || []).some(isGameComplete));
+  state.ui.rebuildOffer = hasScores ? null : editedIndex + 1;
+}
+
+function rebuildNextRound() {
+  const index = state.ui.rebuildOffer;
+  if (index == null || !state.rounds[index]) return;
+  try {
+    const standings = computeStandings(state.players, state.rounds.slice(0, index), state.settings);
+    const prev = state.rounds[index - 1];
+    let courtGroups = null;
+    if (
+      (state.settings.tournamentFormat || 'free') === 'free' &&
+      state.settings.kingOfTheCourt &&
+      prev
+    ) {
+      courtGroups = kingOfTheCourtGroups(prev.matches, state.settings, prev.kind);
+    }
+    const result = generateRound({
+      players: state.players,
+      settings: state.settings,
+      standings,
+      rounds: state.rounds.slice(0, index),
+      kind: state.rounds[index].kind,
+      courtGroups,
+      fixedPairs: prev?.fixedPairs || state.fixedPairs,
+    });
+    const round = state.rounds[index];
+    round.matches = result.matches;
+    round.note = result.note || '';
+    round.courtGroups = result.courtGroups || null;
+    round.fixedPairs = result.fixedPairs || round.fixedPairs;
+    round.playerOrder = result.playerOrder || round.playerOrder;
+    for (const match of round.matches) ensureMatchGames(match, state.settings, round.kind);
+    if (result.fixedPairs) state.fixedPairs = result.fixedPairs;
+    state.ui.rebuildOffer = null;
+    toast('Следующий круг пересобран.');
+    paint();
+  } catch (err) {
+    toast(err instanceof Error ? err.message : 'Не удалось пересобрать');
+    paint();
+  }
+}
+
+function finishSetup() {
+  const need = expectedPlayerCount(state.settings.courts);
+  if (state.players.length !== need) {
+    toast(`Нужно ${need} игроков.`);
+    state.ui.tab = 'players';
+    paint();
+    return false;
+  }
+  const { m, f } = genderCounts(state.players);
+  if (state.settings.pairType === 'mixed' && m !== f) {
+    state.settings.pairType = 'any';
+  }
+  state.settings.setupDone = true;
+  state.ui.setupStep = 0;
+  return true;
 }
 
 function onClick(event) {
@@ -233,7 +309,38 @@ function onClick(event) {
     return;
   }
   if (action === 'gen-round') {
+    if (!state.settings.setupDone && !finishSetup()) return;
     generate(btn.dataset.kind);
+    return;
+  }
+  if (action === 'setup-next') {
+    const steps = wizardSteps(state);
+    state.ui.setupStep = Math.min((state.ui.setupStep || 0) + 1, steps.length - 1);
+    paint();
+    return;
+  }
+  if (action === 'setup-back') {
+    state.ui.setupStep = Math.max((state.ui.setupStep || 0) - 1, 0);
+    paint();
+    return;
+  }
+  if (action === 'setup-start') {
+    if (!finishSetup()) return;
+    generate(state.settings.qualifyingEnabled ? 'qualifying' : 'regular');
+    return;
+  }
+  if (action === 'rebuild-next') {
+    rebuildNextRound();
+    return;
+  }
+  if (action === 'rebuild-skip') {
+    state.ui.rebuildOffer = null;
+    paint();
+    return;
+  }
+  if (action === 'toggle-bool') {
+    state.settings[btn.dataset.key] = btn.dataset.value === '1';
+    paint();
     return;
   }
   if (action === 'open-new-pairs') {
@@ -276,6 +383,7 @@ function onClick(event) {
   }
   if (action === 'setting-val') {
     state.settings[btn.dataset.key] = btn.dataset.value;
+    if (btn.dataset.key === 'standingsSort') state.ui.sort = btn.dataset.value;
     paint();
     return;
   }

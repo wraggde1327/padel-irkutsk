@@ -83,23 +83,25 @@ export function computeStandings(players, rounds, settings) {
 
 export function sortStandings(rows, sort) {
   const copy = rows.slice();
-  copy.sort((x, y) => {
-    if (sort === 'wins') {
-      if (y.wins !== x.wins) return y.wins - x.wins;
-      if (y.delta !== x.delta) return y.delta - x.delta;
-      if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
-    } else if (sort === 'delta') {
-      if (y.delta !== x.delta) return y.delta - x.delta;
-      if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
-      if (y.wins !== x.wins) return y.wins - x.wins;
-    } else {
-      if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
-      if (y.delta !== x.delta) return y.delta - x.delta;
-      if (y.wins !== x.wins) return y.wins - x.wins;
-    }
-    return x.name.localeCompare(y.name, 'ru');
-  });
+  copy.sort((x, y) => compareStandings(x, y, sort) || x.name.localeCompare(y.name, 'ru'));
   return copy;
+}
+
+function compareStandings(a, b, sort) {
+  if (sort === 'wins') {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+    if (b.delta !== a.delta) return b.delta - a.delta;
+  } else if (sort === 'delta') {
+    if (b.delta !== a.delta) return b.delta - a.delta;
+    if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+  } else {
+    if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.delta !== a.delta) return b.delta - a.delta;
+  }
+  return 0;
 }
 
 export function standingOf(standings, id) {
@@ -111,15 +113,6 @@ export function rankPlayers(players, standings, mode = 'points') {
   return players.slice().sort((a, b) => {
     const sa = byId.get(a.id) || { pointsFor: 0, delta: 0, wins: 0 };
     const sb = byId.get(b.id) || { pointsFor: 0, delta: 0, wins: 0 };
-    if (mode === 'delta') {
-      if (sb.delta !== sa.delta) return sb.delta - sa.delta;
-      if (sb.wins !== sa.wins) return sb.wins - sa.wins;
-      if (sb.pointsFor !== sa.pointsFor) return sb.pointsFor - sa.pointsFor;
-    } else {
-      if (sb.pointsFor !== sa.pointsFor) return sb.pointsFor - sa.pointsFor;
-      if (sb.delta !== sa.delta) return sb.delta - sa.delta;
-      if (sb.wins !== sa.wins) return sb.wins - sa.wins;
-    }
-    return (a.name || '').localeCompare(b.name || '', 'ru');
+    return compareStandings(sa, sb, mode) || (a.name || '').localeCompare(b.name || '', 'ru');
   });
 }

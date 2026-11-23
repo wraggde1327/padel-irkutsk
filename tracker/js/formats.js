@@ -14,7 +14,7 @@ export const FORMAT_OPTIONS = [
   {
     id: 'free',
     title: 'Свободный',
-    hint: 'Пары как в настройках: по таблице 1+последний или случайно, без обязательного движения по кортам.',
+    hint: 'Закреплённые пары играют с ближайшими по силе соперниками, либо каждый круг новые 1+последний.',
   },
   {
     id: 'americano',
@@ -169,7 +169,7 @@ export function americanoMixedSchedule(players) {
   return rounds;
 }
 
-function freezeAmericanoOrder(players, standings, rounds) {
+function freezeAmericanoOrder(players, standings, rounds, settings) {
   const prev = rounds.find((r) => r.kind === 'regular' && r.format === 'americano' && r.playerOrder?.length);
   if (prev) {
     const byId = playersByIdMap(players);
@@ -180,13 +180,13 @@ function freezeAmericanoOrder(players, standings, rounds) {
     return ordered;
   }
   if (rounds.some((r) => r.kind === 'qualifying')) {
-    return rankPlayers(players, standings, 'points');
+    return rankPlayers(players, standings, settings?.standingsSort === 'wins' ? 'wins' : 'points');
   }
   return players.slice();
 }
 
 export function nextAmericanoRound({ players, settings, standings, rounds }) {
-  const ordered = freezeAmericanoOrder(players, standings, rounds);
+  const ordered = freezeAmericanoOrder(players, standings, rounds, settings);
   const mixed = mixedWanted(settings);
   const schedule = mixed ? americanoMixedSchedule(ordered) : americanoSchedule(ordered.map((p) => p.id));
   if (!schedule.length) {

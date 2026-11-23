@@ -1,7 +1,7 @@
 import { shuffle } from './rng.js';
 import { countedGames, gamesSum } from './scoring.js';
-import { rankPlayers } from './standings.js';
 import { nextFormatRound } from './formats.js';
+import { nextFreeRound } from './fixed.js';
 import {
   bestPairingOfFour,
   expectedPlayerCount,
@@ -195,60 +195,6 @@ function assertRoster(players, settings) {
   }
 }
 
-function freeRound({ players, settings, standings, rounds, courtGroups, rng }) {
-  const courts = Number(settings.courts) || 2;
-  const mixed = settings.pairType === 'mixed';
-  const playersById = playersByIdMap(players);
-  const counts = partnerCounts(rounds);
-  const ranked = rankPlayers(players, standings);
-  if (settings.kingOfTheCourt && courtGroups?.length === courts) {
-    return {
-      matches: matchesFromCourtGroups(courtGroups, playersById, counts, mixed, rng),
-      warning: '',
-    };
-  }
-  if (settings.pairMethod === 'ranking') {
-    const pairs = rankingPartnerPairs(ranked, mixed);
-    const matches = pairsToMatches(pairs);
-    let warning = '';
-    if (mixed && matches.some((m) => !matchIsMixed(playersById, m))) {
-      warning = 'Не все пары смешанные — не хватило чередования по полу в рейтинге.';
-    }
-    return { matches, warning };
-  }
-  const matches = randomMatches(
-    players,
-    courts,
-    mixed,
-    counts,
-    playersById,
-    rng,
-    true,
-    ranked.map((p) => p.id),
-  );
-  if (!matches) throw new Error('Не удалось сгенерировать пары.');
-  return { matches, warning: '' };
-}
-
-function overrideRound({ players, settings, standings, rounds, method, rankMode, rng }) {
-  const courts = Number(settings.courts) || 2;
-  const playersById = playersByIdMap(players);
-  const counts = partnerCounts(rounds);
-  const ranked = rankPlayers(players, standings, method === 'ranking' ? rankMode || 'points' : 'delta');
-  if (method === 'ranking') {
-    const pairs = rankingPartnerPairs(ranked, false);
-    return { matches: pairsToMatches(pairs), warning: '', override: true };
-  }
-  if (method === 'mixed') {
-    const matches = randomMatches(players, courts, true, counts, playersById, rng, true, ranked.map((p) => p.id));
-    if (!matches) throw new Error('Не удалось собрать смешанные пары.');
-    return { matches, warning: '', override: true };
-  }
-  const matches = randomMatches(players, courts, false, counts, playersById, rng, true, ranked.map((p) => p.id));
-  if (!matches) throw new Error('Не удалось сгенерировать пары.');
-  return { matches, warning: '', override: true };
-}
-
 export function generateRound({
   players,
   settings,
@@ -257,7 +203,7 @@ export function generateRound({
   kind = 'regular',
   courtGroups = null,
   method = null,
-  rankMode = 'points',
+  fixedPairs = [],
   rng = Math.random,
 }) {
   assertRoster(players, settings);
@@ -273,8 +219,8 @@ export function generateRound({
     };
   }
 
-  if (method === 'ranking' || method === 'random' || method === 'mixed') {
-    return overrideRound({ players, settings, standings, rounds, method, rankMode, rng });
+  if (method) {
+    return nextFreeRound({ players, settings, standings, rounds, fixedPairs, method, rng });
   }
 
   const format = settings.tournamentFormat || 'free';
@@ -290,5 +236,14 @@ export function generateRound({
     if (result) return result;
   }
 
-  return freeRound({ players, settings, standings, rounds, courtGroups, rng });
+  if (settings.kingOfTheCourt && courtGroups?.length === (Number(settings.courts) || 2)) {
+    const counts = partnerCounts(rounds);
+    return {
+      matches: matchesFromCourtGroups(courtGroups, playersById, counts, mixed, rng),
+      warning: '',
+      format: 'free',
+    };
+  }
+
+  return nextFreeRound({ players, settings, standings, rounds, fixedPairs, rng });
 }
