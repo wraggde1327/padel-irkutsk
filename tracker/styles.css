@@ -51,7 +51,10 @@ button, input, select { font: inherit; color: inherit; }
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
-  padding: calc(12px + var(--safe-top)) 16px calc(88px + var(--safe-bottom));
+  padding: calc(12px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
+}
+#app:has(.tabs) {
+  padding-bottom: calc(88px + var(--safe-bottom));
 }
 .top { padding: 8px 4px 16px; }
 .eyebrow {
@@ -228,6 +231,44 @@ h3, h4 { margin: 0 0 8px; font-size: 15px; font-weight: 650; }
   max-width: 430px;
   margin: 0 auto;
 }
+.tabs-3 { grid-template-columns: repeat(3, 1fr); }
+.top-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.back-btn { flex-shrink: 0; }
+.top-title { min-width: 0; }
+.top-title h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.home-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.home-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.home-open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  min-height: 52px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.home-open strong { font-size: 17px; }
+.home-open span { font-size: 13px; color: var(--muted); font-weight: 400; }
+.home-item-actions { display: flex; gap: 8px; }
+.home-item-actions .btn { flex: 1; min-height: 44px; }
+.rename-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .tab {
   min-height: 64px;
   border: 0;

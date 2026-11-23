@@ -5,12 +5,13 @@ import {
   neededGames,
   pointsTarget,
   tennisLabel,
+  usesTotalPoints,
 } from './scoring.js';
 import { computeStandings, sortStandings } from './standings.js';
-import { expectedPlayerCount, formatMatchLine, genderCounts } from './pairing.js';
+import { autoCourts, formatMatchLine, genderCounts } from './pairing.js';
 import { FORMAT_OPTIONS, formatTitle } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
-import { ensureMatchGames } from './state.js';
+import { activeTournament, ensureMatchGames } from './state.js';
 
 export function esc(value) {
   return String(value)
@@ -30,6 +31,13 @@ function ruGames(n) {
   return 'игр';
 }
 
+function ruCourts(n) {
+  const v = Number(n);
+  if (v === 1) return '1 корт';
+  if (v >= 2 && v <= 4) return `${v} корта`;
+  return `${v} кортов`;
+}
+
 function playerName(playersById, id) {
   return esc(playersById.get(id)?.name || id);
 }
@@ -43,54 +51,103 @@ export function canPlayMixed(players) {
   return m === f && m > 0;
 }
 
-export function wizardSteps(state) {
-  const format = state.settings.tournamentFormat || 'free';
-  const steps = ['format', 'courts', 'mixed'];
-  if (format === 'free') steps.push('lock');
-  steps.push('table', 'score', 'qual');
-  return steps;
-}
-
 export function scoringSummary(s) {
   if (s.scoringMode === 'games') {
     return `теннис, ${s.gamesPerPairing} ${ruGames(s.gamesPerPairing)}${s.decidingGame ? ' + решающий' : ''}`;
+  }
+  if (s.scoringMode === 'total') {
+    const n = s.totalPoints === 'custom' ? s.customTotal : s.totalPoints;
+    return `сумма ${n}`;
   }
   const n = s.pointsPreset === 'custom' ? s.customPoints : s.pointsPreset;
   return `очки до ${n}${s.winByTwo ? ', ±2' : ''}`;
 }
 
-function setupSummary(state) {
-  const s = state.settings;
+export function setupSummary(tournament) {
+  const s = tournament.settings;
+  const n = tournament.players.length;
+  const courts = autoCourts(n);
+  const sit = n % 4;
   const parts = [
     formatTitle(s.tournamentFormat),
-    `${s.courts} корт${s.courts === 3 ? 'а' : 'а'}`,
-    s.pairType === 'mixed' ? 'М+Ж' : 'любые пары',
+    variantLabel(s),
+    n >= 4 ? `${ruCourts(courts)}${sit ? `, ${sit} сидят` : ''}` : 'мало игроков',
+    s.pairType === 'mixed' || s.formatVariant === 'mixed' ? 'М+Ж' : 'любые пары',
     s.tournamentFormat === 'free' ? (s.pairLock === 'unlocked' ? 'пары каждый круг' : 'пары закреплены') : null,
     s.standingsSort === 'wins' ? 'таблица по победам' : 'таблица по очкам',
     scoringSummary(s),
-    s.qualifyingEnabled ? 'есть квалификация' : null,
+    s.tournamentFormat === 'free' && s.qualifyingEnabled ? 'есть квалификация' : null,
   ].filter(Boolean);
   return parts.join(' · ');
 }
 
-export function renderApp(root, state) {
-  const tab = state.ui.tab || 'players';
+function variantLabel(s) {
+  if (s.formatVariant === 'team') return 'парный';
+  if (s.formatVariant === 'mixed') return 'смешанный';
+  return null;
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  try {
+    return new Intl.DateTimeFormat('ru-RU', {
+      timeZone: 'Asia/Irkutsk',
+      day: 'numeric',
+      month: 'short',
+    }).format(new Date(iso));
+  } catch {
+    return '';
+  }
+}
+
+export function renderApp(root, store) {
+  const screen = store.ui.screen || 'home';
+  const tournament = activeTournament(store);
+  const tab = store.ui.tab || 'players';
+  const inTournament = screen === 'tournament' && tournament;
   root.innerHTML = `
-    <header class="top">
-      <div>
-        <p class="eyebrow">Иркутск · любители</p>
-        <h1>Мини-турнир</h1>
-      </div>
-    </header>
-    ${state.ui.toast ? `<div class="toast" role="status">${esc(state.ui.toast)}</div>` : ''}
-    <main class="main" id="main">${renderTab(state, tab)}</main>
-    <nav class="tabs" aria-label="Разделы">
-      ${tabBtn('players', 'Участники', tab)}
-      ${tabBtn('play', 'Игры', tab)}
-      ${tabBtn('table', 'Таблица', tab)}
-      ${tabBtn('settings', 'Ещё', tab)}
-    </nav>
+    ${renderHeader(store, tournament, screen)}
+    ${store.ui.toast ? `<div class="toast" role="status">${esc(store.ui.toast)}</div>` : ''}
+    ${store.ui.importAsk ? renderImportAsk(store) : ''}
+    <main class="main" id="main">${renderScreen(store, tournament, screen, tab)}</main>
+    ${
+      inTournament
+        ? `<nav class="tabs tabs-3" aria-label="Разделы">
+            ${tabBtn('players', 'Участники', tab)}
+            ${tabBtn('play', 'Игры', tab)}
+            ${tabBtn('table', 'Таблица', tab)}
+          </nav>`
+        : ''
+    }
   `;
+}
+
+function renderHeader(store, tournament, screen) {
+  if (screen === 'home') {
+    return `<header class="top">
+      <div>
+        <p class="eyebrow">Падел · мини-турнир</p>
+        <h1>Турниры</h1>
+      </div>
+    </header>`;
+  }
+  if (screen === 'create-format' || screen === 'create-settings') {
+    return `<header class="top top-row">
+      <button type="button" class="icon-btn back-btn" data-action="go-home" aria-label="Назад к списку">←</button>
+      <div>
+        <p class="eyebrow">Новый турнир</p>
+        <h1>${screen === 'create-format' ? 'Формат' : 'Настройки'}</h1>
+      </div>
+    </header>`;
+  }
+  const name = tournament?.name || 'Турнир';
+  return `<header class="top top-row">
+    <button type="button" class="icon-btn back-btn" data-action="go-home" aria-label="К списку турниров">←</button>
+    <div class="top-title">
+      <p class="eyebrow">${esc(formatTitle(tournament?.settings.tournamentFormat))}</p>
+      <h1>${esc(name)}</h1>
+    </div>
+  </header>`;
 }
 
 function tabBtn(id, label, current) {
@@ -99,16 +156,324 @@ function tabBtn(id, label, current) {
   }>${label}</button>`;
 }
 
-function renderTab(state, tab) {
-  if (tab === 'players') return renderPlayers(state);
-  if (tab === 'play') return renderPlay(state);
-  if (tab === 'table') return renderTable(state);
-  return renderSettings(state);
+function renderScreen(store, tournament, screen, tab) {
+  if (screen === 'create-format') return renderCreateFormat(store);
+  if (screen === 'create-settings') return renderCreateSettings(store);
+  if (screen === 'tournament' && tournament) {
+    if (tab === 'settings') return renderSettings(store, tournament);
+    if (tab === 'play') return renderPlay(store, tournament);
+    if (tab === 'table') return renderTable(store, tournament);
+    return renderPlayers(store, tournament);
+  }
+  return renderHome(store);
 }
 
-function renderPlayers(state) {
-  const need = expectedPlayerCount(state.settings.courts);
-  const { players } = state;
+function renderHome(store) {
+  const items = store.tournaments
+    .slice()
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+    .map((t) => {
+      const n = t.players.length;
+      const courts = autoCourts(n);
+      const renaming = store.ui.renameId === t.id;
+      return `
+        <li class="home-item">
+          ${
+            renaming
+              ? `<form class="rename-row" data-action="rename-tournament-form" data-id="${esc(t.id)}">
+                  <input class="input" name="name" value="${esc(t.name)}" maxlength="60" required aria-label="Название" />
+                  <button class="btn btn-primary" type="submit">OK</button>
+                </form>`
+              : `<button type="button" class="home-open" data-action="open-tournament" data-id="${esc(t.id)}">
+                  <strong>${esc(t.name)}</strong>
+                  <span>${esc(formatTitle(t.settings.tournamentFormat))} · ${n} игроков${
+                    n >= 4 ? ` · ${ruCourts(courts)}` : ''
+                  }${t.updatedAt ? ` · ${esc(formatDate(t.updatedAt))}` : ''}</span>
+                </button>`
+          }
+          <div class="home-item-actions">
+            <button type="button" class="btn btn-ghost" data-action="rename-tournament" data-id="${esc(t.id)}">Переименовать</button>
+            <button type="button" class="btn btn-ghost" data-action="delete-tournament" data-id="${esc(t.id)}">Удалить</button>
+          </div>
+        </li>`;
+    })
+    .join('');
+  return `
+    <section class="stack">
+      <div class="card">
+        <p class="hint">Все турниры хранятся в этом браузере. Можно вести несколько сразу.</p>
+        <ul class="home-list">${items || '<li class="empty">Пока нет турниров</li>'}</ul>
+        <button type="button" class="btn btn-primary" id="btn-create" data-action="create" style="width:100%;margin-top:12px">Создать</button>
+      </div>
+      <div class="card">
+        <h2>Файл</h2>
+        <p class="hint">Скачайте JSON на телефон или восстановите из файла. Ничего не перезаписывается само.</p>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" data-action="export-all" ${
+            store.tournaments.length ? '' : 'disabled'
+          }>Экспорт всех</button>
+          <button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderImportAsk(store) {
+  const ask = store.ui.importAsk;
+  const n = ask.tournaments.length;
+  const inTournament = store.ui.screen === 'tournament' && store.ui.activeId;
+  return `
+    <div class="card callout" id="import-ask" role="dialog" aria-labelledby="import-ask-title">
+      <h2 id="import-ask-title">Файл проверен</h2>
+      <p>Найден${n === 1 ? '' : 'о'} ${n} ${n === 1 ? 'турнир' : 'турнира'}. Как импортировать?</p>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" data-action="import-add">Добавить к списку</button>
+        ${
+          inTournament
+            ? `<button type="button" class="btn btn-ghost" data-action="import-replace-one">Заменить этот турнир</button>`
+            : ''
+        }
+        ${
+          store.tournaments.length
+            ? `<button type="button" class="btn btn-ghost" data-action="import-replace-all">Заменить все турниры</button>`
+            : ''
+        }
+        <button type="button" class="btn btn-ghost" data-action="import-cancel">Отмена</button>
+      </div>
+    </div>`;
+}
+
+function renderCreateFormat() {
+  return `
+    <section class="card">
+      <p class="hint">Сначала формат — настройки будут только для него.</p>
+      <div class="format-list">
+        ${FORMAT_OPTIONS.map(
+          (f) => `
+          <button type="button" class="format-opt" data-action="pick-format" data-format="${f.id}">
+            <strong>${esc(f.title)}</strong>
+            <span>${esc(f.hint)}</span>
+          </button>`,
+        ).join('')}
+      </div>
+    </section>`;
+}
+
+function renderCreateSettings(store) {
+  const draft = store.ui.draft;
+  if (!draft) return renderCreateFormat();
+  const s = draft.settings;
+  return `
+    <section class="stack">
+      <div class="card">
+        <h2>${esc(formatTitle(draft.format))}</h2>
+        <label class="field">Название
+          <input class="input" data-action="draft-name" value="${esc(draft.name)}" maxlength="60" />
+        </label>
+        ${renderFormatSettings(s, { draft: true, players: [] })}
+        <div class="actions wizard-nav">
+          <button type="button" class="btn btn-ghost" data-action="create-back">Назад</button>
+          <button type="button" class="btn btn-primary" id="btn-create-ok" data-action="create-ok">OK</button>
+        </div>
+      </div>
+    </section>`;
+}
+
+function renderFormatSettings(s, { draft = false, players = [] } = {}) {
+  const format = s.tournamentFormat || 'free';
+  const action = draft ? 'draft-setting-val' : 'setting-val';
+  const toggle = draft ? 'draft-toggle' : 'toggle';
+  const toggleBool = draft ? 'draft-toggle-bool' : 'toggle-bool';
+  const okMixed = players.length ? canPlayMixed(players) : true;
+  if (format === 'free') {
+    return `
+      ${renderPairLock(s, action)}
+      ${renderMixed(s, action, okMixed, players)}
+      <p class="field-label">Таблица</p>
+      <div class="seg">
+        <button type="button" class="seg-btn ${s.standingsSort !== 'wins' ? 'is-on' : ''}" data-action="${action}" data-key="standingsSort" data-value="points">По очкам</button>
+        <button type="button" class="seg-btn ${s.standingsSort === 'wins' ? 'is-on' : ''}" data-action="${action}" data-key="standingsSort" data-value="wins">По победам</button>
+      </div>
+      <h3>Счёт</h3>
+      ${renderScoringFields(s, { lunda: false, draft })}
+      <h3>Квалификация</h3>
+      <p class="hint">Случайный круг до старта. Можно пропустить.</p>
+      <div class="seg">
+        <button type="button" class="seg-btn ${!s.qualifyingEnabled ? 'is-on' : ''}" data-action="${toggleBool}" data-key="qualifyingEnabled" data-value="0">Нет</button>
+        <button type="button" class="seg-btn ${s.qualifyingEnabled ? 'is-on' : ''}" data-action="${toggleBool}" data-key="qualifyingEnabled" data-value="1">Да</button>
+      </div>
+      ${
+        s.qualifyingEnabled
+          ? `<div class="seg">
+              <button type="button" class="seg-btn ${s.qualifyingPoints === 15 ? 'is-on' : ''}" data-action="${draft ? 'draft-qual-pts' : 'qual-pts'}" data-n="15">До 15</button>
+              <button type="button" class="seg-btn ${s.qualifyingPoints === 17 ? 'is-on' : ''}" data-action="${draft ? 'draft-qual-pts' : 'qual-pts'}" data-n="17">До 17</button>
+            </div>`
+          : ''
+      }`;
+  }
+  return `
+    ${format === 'americano' || format === 'mexicano' ? renderVariant(s, action, format) : renderMixed(s, action, okMixed, players)}
+    ${
+      format === 'mexicano'
+        ? `<p class="field-label">Пары в четвёрке</p>
+    <div class="seg">
+      <button type="button" class="seg-btn ${s.mexicanoPairing !== '1-3' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-4">1+4 vs 2+3</button>
+      <button type="button" class="seg-btn ${s.mexicanoPairing === '1-3' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-3">1+3 vs 2+4</button>
+    </div>`
+        : ''
+    }
+    ${renderRoundsLimit(s, draft)}
+    <h3>Счёт матча</h3>
+    <p class="hint">Как в Lunda: игра до суммы очков, без разницы в 2.</p>
+    ${renderScoringFields(s, { lunda: true, draft })}`;
+}
+
+function renderVariant(s, action, format) {
+  return `
+    <p class="field-label">Вид</p>
+    <div class="format-list">
+      <button type="button" class="format-opt ${s.formatVariant !== 'mixed' && s.formatVariant !== 'team' ? 'is-on' : ''}" data-action="${action}" data-key="formatVariant" data-value="classic">
+        <strong>Классика</strong>
+        <span>${format === 'mexicano' ? 'Группы по таблице после каждого круга.' : 'Каждый с каждым в напарниках.'}</span>
+      </button>
+      <button type="button" class="format-opt ${s.formatVariant === 'mixed' ? 'is-on' : ''}" data-action="${action}" data-key="formatVariant" data-value="mixed">
+        <strong>Смешанный</strong>
+        <span>Только пары М+Ж. Нужно поровну мужчин и женщин.</span>
+      </button>
+      <button type="button" class="format-opt ${s.formatVariant === 'team' ? 'is-on' : ''}" data-action="${action}" data-key="formatVariant" data-value="team">
+        <strong>Парный</strong>
+        <span>${format === 'mexicano' ? 'Закреплённые пары, соперники по силе (Team Mexicano).' : 'Закреплённые пары, круговой график соперников (Team Americano).'}</span>
+      </button>
+    </div>`;
+}
+
+function renderPairLock(s, action) {
+  return `
+    <p class="field-label">Пары</p>
+    <div class="format-list">
+      <button type="button" class="format-opt ${s.pairLock !== 'unlocked' ? 'is-on' : ''}" data-action="${action}" data-key="pairLock" data-value="locked">
+        <strong>Закреплённые</strong>
+        <span>Одни и те же пары, пока не нажмёте «Сменить пары». Соперники — ближайшие по силе.</span>
+      </button>
+      <button type="button" class="format-opt ${s.pairLock === 'unlocked' ? 'is-on' : ''}" data-action="${action}" data-key="pairLock" data-value="unlocked">
+        <strong>Не закреплённые</strong>
+        <span>Каждый круг заново: 1+последний (при М+Ж — сильный М со слабой Ж).</span>
+      </button>
+    </div>
+    ${
+      s.pairLock !== 'unlocked'
+        ? `<div class="seg">
+      <button type="button" class="seg-btn ${s.lockedMatchups !== 'roundrobin' ? 'is-on' : ''}" data-action="${action}" data-key="lockedMatchups" data-value="strength">Соперники по силе</button>
+      <button type="button" class="seg-btn ${s.lockedMatchups === 'roundrobin' ? 'is-on' : ''}" data-action="${action}" data-key="lockedMatchups" data-value="roundrobin">Круговой график</button>
+    </div>`
+        : ''
+    }`;
+}
+
+function renderMixed(s, action, okMixed, players) {
+  const on = s.pairType === 'mixed' || s.formatVariant === 'mixed';
+  if (players.length && !okMixed) {
+    const { m, f } = genderCounts(players);
+    return `<p class="hint">М+Ж выключено: нужно поровну (сейчас ${m} и ${f}).</p>`;
+  }
+  return `
+    <p class="field-label">Играем М+Ж?</p>
+    <div class="seg">
+      <button type="button" class="seg-btn ${on ? 'is-on' : ''}" data-action="${action}" data-key="pairType" data-value="mixed">Да</button>
+      <button type="button" class="seg-btn ${!on ? 'is-on' : ''}" data-action="${action}" data-key="pairType" data-value="any">Нет</button>
+    </div>`;
+}
+
+function renderRoundsLimit(s, draft) {
+  const action = draft ? 'draft-setting-val' : 'setting-val';
+  const val = s.roundsLimit;
+  const presets = ['full', '4', '6', '8'];
+  return `
+    <p class="field-label">Сколько кругов</p>
+    <div class="seg wrap">
+      ${presets
+        .map((n) => {
+          const on = String(val) === n || (n === 'full' && (val === 'full' || val == null));
+          const label = n === 'full' ? 'По циклу' : n;
+          return `<button type="button" class="seg-btn ${on ? 'is-on' : ''}" data-action="${action}" data-key="roundsLimit" data-value="${n}">${label}</button>`;
+        })
+        .join('')}
+    </div>
+    <p class="hint">Корты считаются сами: игроков ÷ 4. Лишние сидят по очереди.</p>`;
+}
+
+export function renderScoringFields(s, { lunda = false, draft = false } = {}) {
+  const action = draft ? 'draft-setting-val' : 'setting-val';
+  const toggle = draft ? 'draft-toggle' : 'toggle';
+  const preset = draft ? 'draft-preset' : 'preset';
+  const total = draft ? 'draft-total' : 'total-pts';
+  if (lunda) {
+    const n = s.totalPoints;
+    return `
+    <div class="seg wrap">
+      ${[16, 21, 24, 32]
+        .map(
+          (v) =>
+            `<button type="button" class="seg-btn ${Number(n) === v ? 'is-on' : ''}" data-action="${total}" data-n="${v}">${v}</button>`,
+        )
+        .join('')}
+      <button type="button" class="seg-btn ${n === 'custom' ? 'is-on' : ''}" data-action="${total}" data-n="custom">Своё</button>
+    </div>
+    ${
+      n === 'custom'
+        ? `<label class="field">Сумма очков
+            <input class="input" type="number" min="8" max="99" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="customTotal" value="${esc(s.customTotal)}" />
+          </label>`
+        : ''
+    }`;
+  }
+  const pointsMode = s.scoringMode !== 'games';
+  return `
+    <div class="seg">
+      <button type="button" class="seg-btn ${pointsMode ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="points">По очкам</button>
+      <button type="button" class="seg-btn ${!pointsMode ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="games">Теннис, геймы</button>
+    </div>
+    <div class="${pointsMode ? '' : 'is-hidden'}">
+      <p class="field-label">До скольких</p>
+      <div class="seg wrap">
+        ${[11, 15, 21].map((n) => `<button type="button" class="seg-btn ${s.pointsPreset === n ? 'is-on' : ''}" data-action="${preset}" data-n="${n}">${n}</button>`).join('')}
+        <button type="button" class="seg-btn ${s.pointsPreset === 'custom' ? 'is-on' : ''}" data-action="${preset}" data-n="custom">Своё</button>
+      </div>
+      ${
+        s.pointsPreset === 'custom'
+          ? `<label class="field">Своё N
+              <input class="input" type="number" min="3" max="99" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="customPoints" value="${esc(s.customPoints)}" />
+            </label>`
+          : ''
+      }
+      <label class="toggle">
+        <input type="checkbox" data-action="${toggle}" data-key="winByTwo" ${s.winByTwo ? 'checked' : ''} />
+        <span>Победа с разницей в 2</span>
+      </label>
+    </div>
+    <div class="${pointsMode ? 'is-hidden' : ''}">
+      <label class="field">Геймов в матче
+        <input class="input" type="number" min="1" max="7" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="gamesPerPairing" value="${esc(s.gamesPerPairing)}" />
+      </label>
+      <label class="toggle">
+        <input type="checkbox" data-action="${toggle}" data-key="decidingGame" ${s.decidingGame ? 'checked' : ''} />
+        <span>Решающий при ничьей</span>
+      </label>
+    </div>`;
+}
+
+function rosterHint(players) {
+  const n = players.length;
+  const courts = autoCourts(n);
+  const sit = n % 4;
+  if (n < 4) return `${n} игроков · нужно минимум 4`;
+  if (sit) return `${n} игроков · ${ruCourts(courts)} · ${sit} сидят по очереди`;
+  return `${n} игроков · ${ruCourts(courts)}`;
+}
+
+function renderPlayers(store, tournament) {
+  const { players } = tournament;
   const rows = players
     .map(
       (p) => `
@@ -122,43 +487,40 @@ function renderPlayers(state) {
       </li>`,
     )
     .join('');
-  const ready = players.length === need;
+  const ready = players.length >= 4;
   return `
     <section class="card">
       <h2>Участники</h2>
-      <p class="hint">${players.length} из ${need} · ${state.settings.courts} корт${state.settings.courts === 3 ? 'а' : 'а'}</p>
+      <p class="hint">${esc(rosterHint(players))}</p>
       <ul class="player-list">${rows || '<li class="empty">Пока никого нет</li>'}</ul>
       <form class="add-row" data-action="add-player-form">
         <input class="input" id="add-name" name="name" placeholder="Имя игрока" maxlength="40" autocomplete="off" required />
         <button class="btn btn-primary" type="submit">Добавить</button>
       </form>
       ${
-        ready && !state.settings.setupDone
-          ? `<button type="button" class="btn btn-primary" data-action="tab" data-tab="play" style="width:100%;margin-top:12px">Дальше — начать</button>`
+        ready
+          ? `<button type="button" class="btn btn-primary" data-action="tab" data-tab="play" style="width:100%;margin-top:12px">К играм</button>`
           : ''
       }
     </section>
   `;
 }
 
-function renderPlay(state) {
-  const need = expectedPlayerCount(state.settings.courts);
-  const playersById = new Map(state.players.map((p) => [p.id, p]));
-  if (state.players.length !== need) {
+function renderPlay(store, tournament) {
+  const playersById = new Map(tournament.players.map((p) => [p.id, p]));
+  if (tournament.players.length < 4) {
     return `
       <section class="card">
         <h2>Игры</h2>
-        <p class="hint">Добавьте ровно ${need} игроков на вкладке «Участники» (сейчас ${state.players.length}).</p>
+        <p class="hint">Добавьте минимум 4 игроков на вкладке «Участники» (сейчас ${tournament.players.length}). Корты посчитаются сами.</p>
       </section>`;
   }
-  if (!state.settings.setupDone) {
-    return renderWizard(state);
-  }
 
-  const last = state.rounds[state.rounds.length - 1];
-  const lastDone = last && last.matches.every((m) => matchComplete(m, state.settings, last.kind));
-  const canQual = state.settings.qualifyingEnabled && !state.rounds.some((r) => r.kind === 'qualifying');
-  const format = state.settings.tournamentFormat || 'free';
+  const last = tournament.rounds[tournament.rounds.length - 1];
+  const lastDone = last && last.matches.every((m) => matchComplete(m, tournament.settings, last.kind));
+  const canQual =
+    tournament.settings.qualifyingEnabled && !tournament.rounds.some((r) => r.kind === 'qualifying');
+  const format = tournament.settings.tournamentFormat || 'free';
   const nextLabel =
     format === 'king'
       ? 'Сдвиг короля'
@@ -181,32 +543,40 @@ function renderPlay(state) {
       `<button type="button" class="btn btn-primary" id="btn-next-round" data-action="gen-round" data-kind="regular">${nextLabel}</button>`,
     );
   }
-  actions.push(
-    `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`,
-  );
+  if (format === 'free') {
+    actions.push(
+      `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`,
+    );
+  }
 
-  const history = state.rounds
-    .map((round, index) => renderRound(state, round, index, playersById, index === state.rounds.length - 1))
+  const history = tournament.rounds
+    .map((round, index) =>
+      renderRound(store, tournament, round, index, playersById, index === tournament.rounds.length - 1),
+    )
     .reverse()
     .join('');
 
   return `
     <section class="stack">
       <p class="summary-line">
-        <span>${esc(setupSummary(state))}</span>
-        <button type="button" class="linkish summary-edit" data-action="tab" data-tab="settings">Изменить</button>
+        <span>${esc(setupSummary(tournament))}</span>
+        <button type="button" class="linkish summary-edit" data-action="open-settings">Настройки турнира</button>
       </p>
-      <div class="card play-bar">
+      ${
+        actions.length
+          ? `<div class="card play-bar">
         <div class="actions">${actions.join('')}</div>
-      </div>
-      ${state.ui.rebuildOffer != null ? renderRebuildOffer(state) : ''}
-      ${state.ui.newPairsOpen ? renderChangePairsPanel(state, last, lastDone) : ''}
+      </div>`
+          : ''
+      }
+      ${store.ui.rebuildOffer != null ? renderRebuildOffer() : ''}
+      ${store.ui.newPairsOpen ? renderChangePairsPanel(store, last, lastDone) : ''}
       ${history || '<div class="card"><p class="hint">Кругов ещё нет — нажмите «Начать круг».</p></div>'}
     </section>
   `;
 }
 
-function renderRebuildOffer(state) {
+function renderRebuildOffer() {
   return `
     <div class="card callout" id="rebuild-offer">
       <p>Счёт прошлого круга изменился, а следующий ещё без очков.</p>
@@ -217,7 +587,7 @@ function renderRebuildOffer(state) {
     </div>`;
 }
 
-function renderChangePairsPanel(state, last, lastDone) {
+function renderChangePairsPanel(store, last, lastDone) {
   const hasScores =
     last &&
     last.matches.some((m) =>
@@ -241,7 +611,7 @@ function renderChangePairsPanel(state, last, lastDone) {
               <p>В круге уже есть счета, но не все матчи доиграны.</p>
               <p class="hint">По умолчанию сыгранное останется в таблице, незаполненное не считается.</p>
               <label class="toggle">
-                <input type="checkbox" data-action="toggle-ui" data-key="discardUnfinished" ${state.ui.discardUnfinished ? 'checked' : ''} />
+                <input type="checkbox" data-action="toggle-ui" data-key="discardUnfinished" ${store.ui.discardUnfinished ? 'checked' : ''} />
                 <span>Удалить этот круг целиком</span>
               </label>
             </div>`
@@ -255,145 +625,6 @@ function renderChangePairsPanel(state, last, lastDone) {
   `;
 }
 
-function renderWizard(state) {
-  const steps = wizardSteps(state);
-  const step = Math.min(state.ui.setupStep || 0, steps.length - 1);
-  const id = steps[step];
-  const last = step === steps.length - 1;
-  return `
-    <section class="stack">
-      <div class="card">
-        <p class="hint">Шаг ${step + 1} из ${steps.length} · можно поменять потом</p>
-        ${renderWizardStep(state, id)}
-        <div class="actions wizard-nav">
-          ${step > 0 ? `<button type="button" class="btn btn-ghost" data-action="setup-back">Назад</button>` : ''}
-          ${
-            last
-              ? `<button type="button" class="btn btn-primary" data-action="setup-start" id="btn-setup-start">Начать</button>`
-              : `<button type="button" class="btn btn-primary" data-action="setup-next" id="btn-setup-next">Дальше</button>`
-          }
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function renderWizardStep(state, id) {
-  const s = state.settings;
-  if (id === 'format') {
-    return `
-      <h2>Формат</h2>
-      <div class="format-list">
-        ${FORMAT_OPTIONS.map(
-          (f) => `
-          <button type="button" class="format-opt ${s.tournamentFormat === f.id ? 'is-on' : ''}" data-action="setting-val" data-key="tournamentFormat" data-value="${f.id}">
-            <strong>${esc(f.title)}</strong>
-            <span>${esc(f.hint)}</span>
-          </button>`,
-        ).join('')}
-      </div>`;
-  }
-  if (id === 'courts') {
-    return `
-      <h2>Сколько кортов</h2>
-      <div class="seg">
-        <button type="button" class="seg-btn ${s.courts === 2 ? 'is-on' : ''}" data-action="courts" data-n="2">2 корта · 8</button>
-        <button type="button" class="seg-btn ${s.courts === 3 ? 'is-on' : ''}" data-action="courts" data-n="3">3 корта · 12</button>
-      </div>`;
-  }
-  if (id === 'mixed') {
-    const ok = canPlayMixed(state.players);
-    if (!ok) {
-      return `
-        <h2>Играем М+Ж?</h2>
-        <p class="hint">Мужчин и женщин не поровну (${genderCounts(state.players).m} и ${genderCounts(state.players).f}) — пары будут любые. Чтобы включить М+Ж, поправьте пол на «Участниках».</p>`;
-    }
-    return `
-      <h2>Играем М+Ж?</h2>
-      <div class="seg">
-        <button type="button" class="seg-btn ${s.pairType === 'mixed' ? 'is-on' : ''}" data-action="setting-val" data-key="pairType" data-value="mixed">Да</button>
-        <button type="button" class="seg-btn ${s.pairType === 'any' ? 'is-on' : ''}" data-action="setting-val" data-key="pairType" data-value="any">Нет</button>
-      </div>`;
-  }
-  if (id === 'lock') {
-    return `
-      <h2>Пары</h2>
-      <div class="format-list">
-        <button type="button" class="format-opt ${s.pairLock !== 'unlocked' ? 'is-on' : ''}" data-action="setting-val" data-key="pairLock" data-value="locked">
-          <strong>Закреплённые</strong>
-          <span>Одни и те же пары, пока не нажмёте «Сменить пары». Соперники — ближайшие по силе.</span>
-        </button>
-        <button type="button" class="format-opt ${s.pairLock === 'unlocked' ? 'is-on' : ''}" data-action="setting-val" data-key="pairLock" data-value="unlocked">
-          <strong>Не закреплённые</strong>
-          <span>Каждый круг заново: 1+последний (при М+Ж — сильный М со слабой Ж).</span>
-        </button>
-      </div>`;
-  }
-  if (id === 'table') {
-    return `
-      <h2>Таблица</h2>
-      <p class="hint">Главная сортировка. При равенстве — второй показатель, затем разница очков.</p>
-      <div class="seg">
-        <button type="button" class="seg-btn ${s.standingsSort !== 'wins' ? 'is-on' : ''}" data-action="setting-val" data-key="standingsSort" data-value="points">По очкам</button>
-        <button type="button" class="seg-btn ${s.standingsSort === 'wins' ? 'is-on' : ''}" data-action="setting-val" data-key="standingsSort" data-value="wins">По победам</button>
-      </div>`;
-  }
-  if (id === 'score') {
-    return `<h2>Счёт</h2>${renderScoringFields(s)}`;
-  }
-  return `
-    <h2>Квалификация</h2>
-    <p class="hint">Один случайный круг для стартового рейтинга. Можно пропустить.</p>
-    <div class="seg">
-      <button type="button" class="seg-btn ${!s.qualifyingEnabled ? 'is-on' : ''}" data-action="toggle-bool" data-key="qualifyingEnabled" data-value="0">Нет</button>
-      <button type="button" class="seg-btn ${s.qualifyingEnabled ? 'is-on' : ''}" data-action="toggle-bool" data-key="qualifyingEnabled" data-value="1">Да</button>
-    </div>
-    ${
-      s.qualifyingEnabled
-        ? `<div class="seg" style="margin-top:8px">
-            <button type="button" class="seg-btn ${s.qualifyingPoints === 15 ? 'is-on' : ''}" data-action="qual-pts" data-n="15">До 15</button>
-            <button type="button" class="seg-btn ${s.qualifyingPoints === 17 ? 'is-on' : ''}" data-action="qual-pts" data-n="17">До 17</button>
-          </div>`
-        : ''
-    }`;
-}
-
-function renderScoringFields(s) {
-  const pointsMode = s.scoringMode !== 'games';
-  return `
-    <div class="seg">
-      <button type="button" class="seg-btn ${pointsMode ? 'is-on' : ''}" data-action="setting-val" data-key="scoringMode" data-value="points">По очкам</button>
-      <button type="button" class="seg-btn ${!pointsMode ? 'is-on' : ''}" data-action="setting-val" data-key="scoringMode" data-value="games">Теннис, геймы</button>
-    </div>
-    <div class="${pointsMode ? '' : 'is-hidden'}">
-      <p class="field-label">До скольких</p>
-      <div class="seg wrap">
-        ${[11, 15, 21].map((n) => `<button type="button" class="seg-btn ${s.pointsPreset === n ? 'is-on' : ''}" data-action="preset" data-n="${n}">${n}</button>`).join('')}
-        <button type="button" class="seg-btn ${s.pointsPreset === 'custom' ? 'is-on' : ''}" data-action="preset" data-n="custom">Своё</button>
-      </div>
-      ${
-        s.pointsPreset === 'custom'
-          ? `<label class="field">Своё N
-              <input class="input" type="number" min="3" max="99" data-action="setting" data-key="customPoints" value="${esc(s.customPoints)}" />
-            </label>`
-          : ''
-      }
-      <label class="toggle">
-        <input type="checkbox" data-action="toggle" data-key="winByTwo" ${s.winByTwo ? 'checked' : ''} />
-        <span>Победа с разницей в 2</span>
-      </label>
-    </div>
-    <div class="${pointsMode ? 'is-hidden' : ''}">
-      <label class="field">Геймов в матче
-        <input class="input" type="number" min="1" max="7" data-action="setting" data-key="gamesPerPairing" value="${esc(s.gamesPerPairing)}" />
-      </label>
-      <label class="toggle">
-        <input type="checkbox" data-action="toggle" data-key="decidingGame" ${s.decidingGame ? 'checked' : ''} />
-        <span>Решающий при ничьей</span>
-      </label>
-    </div>`;
-}
-
 function roundTitle(round, index) {
   if (round.kind === 'qualifying') return 'Квалификация';
   const n = round.number || index;
@@ -402,11 +633,11 @@ function roundTitle(round, index) {
   return `Круг ${n}${fmt}${early}`;
 }
 
-function renderRound(state, round, index, playersById, isCurrent) {
+function renderRound(store, tournament, round, index, playersById, isCurrent) {
   const cards = round.matches
     .slice()
     .sort((a, b) => a.court - b.court)
-    .map((match) => renderMatch(state, round, index, match, playersById, isCurrent))
+    .map((match) => renderMatch(store, tournament, round, index, match, playersById, isCurrent))
     .join('');
   const lines = round.matches
     .slice()
@@ -423,24 +654,25 @@ function renderRound(state, round, index, playersById, isCurrent) {
   `;
 }
 
-function renderMatch(state, round, roundIndex, match, playersById, isCurrent) {
-  ensureMatchGames(match, state.settings, round.kind);
-  const n = neededGames(state.settings, round.kind, match.games);
+function renderMatch(store, tournament, round, roundIndex, match, playersById, isCurrent) {
+  ensureMatchGames(match, tournament.settings, round.kind);
+  const n = neededGames(tournament.settings, round.kind, match.games);
   const games = match.games.slice(0, n);
-  const target = pointsTarget(state.settings, round.kind);
-  const winByTwo = round.kind === 'qualifying' ? false : state.settings.winByTwo;
+  const target = pointsTarget(tournament.settings, round.kind);
+  const winByTwo =
+    round.kind === 'qualifying' || usesTotalPoints(tournament.settings, round.kind)
+      ? false
+      : tournament.settings.winByTwo;
   const sum = gamesSum(games.filter(isGameComplete));
-  const showTennis = state.settings.scoringMode === 'games' && round.kind !== 'qualifying';
+  const showTennis = tournament.settings.scoringMode === 'games' && round.kind !== 'qualifying';
   const gameRows = games
     .map((g, gi) => {
       const board =
-        showTennis && isCurrent
-          ? renderScoreboard(state, roundIndex, match.court, gi, g)
-          : '';
+        showTennis && isCurrent ? renderScoreboard(store, roundIndex, match.court, gi, g) : '';
       const label =
         n === 1
           ? 'Счёт'
-          : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : state.settings.gamesPerPairing) ? ' · решающий' : ''}`;
+          : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : tournament.settings.gamesPerPairing) ? ' · решающий' : ''}`;
       return `
         <div class="score-row">
           <span class="score-label">${label}</span>
@@ -479,14 +711,14 @@ function scoreInput(roundIndex, court, gameIndex, side, value, target, winByTwo)
     value="${esc(shown)}" aria-label="Счёт" />`;
 }
 
-function renderScoreboard(state, roundIndex, court, gameIndex, game) {
+function renderScoreboard(store, roundIndex, court, gameIndex, game) {
   const tennis = game.tennis || { ptsA: 0, ptsB: 0 };
   const labels = tennisLabel(tennis.ptsA, tennis.ptsB);
   const open =
-    state.ui.scoreboard &&
-    state.ui.scoreboard.round === roundIndex &&
-    state.ui.scoreboard.court === court &&
-    state.ui.scoreboard.game === gameIndex;
+    store.ui.scoreboard &&
+    store.ui.scoreboard.round === roundIndex &&
+    store.ui.scoreboard.court === court &&
+    store.ui.scoreboard.game === gameIndex;
   return `
     <button type="button" class="linkish" data-action="toggle-board" data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}">
       ${open ? 'Скрыть табло' : 'Табло по очкам'}
@@ -506,11 +738,14 @@ function renderScoreboard(state, roundIndex, court, gameIndex, game) {
   `;
 }
 
-function renderTable(state) {
-  const primary = state.settings.standingsSort === 'wins' ? 'wins' : 'points';
-  const sort = state.ui.sort || primary;
-  const rows = sortStandings(computeStandings(state.players, state.rounds, state.settings), sort);
-  const playersById = new Map(state.players.map((p) => [p.id, p]));
+function renderTable(store, tournament) {
+  const primary = tournament.settings.standingsSort === 'wins' ? 'wins' : 'points';
+  const sort = store.ui.sort || primary;
+  const rows = sortStandings(
+    computeStandings(tournament.players, tournament.rounds, tournament.settings),
+    sort,
+  );
+  const playersById = new Map(tournament.players.map((p) => [p.id, p]));
   const body = rows
     .map(
       (r, i) => `
@@ -524,7 +759,7 @@ function renderTable(state) {
       </tr>`,
     )
     .join('');
-  const history = state.rounds
+  const history = tournament.rounds
     .map((round, index) => {
       const lines = round.matches
         .slice()
@@ -571,94 +806,28 @@ function renderTable(state) {
   `;
 }
 
-function renderSettings(state) {
-  const s = state.settings;
-  const format = s.tournamentFormat || 'free';
-  const okMixed = canPlayMixed(state.players);
+function renderSettings(store, tournament) {
+  const s = tournament.settings;
   return `
     <section class="stack">
       <div class="card">
-        <h2>Турнир</h2>
-        <p class="hint">${esc(setupSummary(state))}</p>
-        <p class="field-label">Формат</p>
-        <div class="format-list">
-          ${FORMAT_OPTIONS.map(
-            (f) => `
-            <button type="button" class="format-opt ${format === f.id ? 'is-on' : ''}" data-action="setting-val" data-key="tournamentFormat" data-value="${f.id}">
-              <strong>${esc(f.title)}</strong>
-              <span>${esc(f.hint)}</span>
-            </button>`,
-          ).join('')}
-        </div>
-        ${
-          format === 'mexicano'
-            ? `<p class="field-label">Пары в четвёрке</p>
-        <div class="seg">
-          <button type="button" class="seg-btn ${s.mexicanoPairing !== '1-3' ? 'is-on' : ''}" data-action="setting-val" data-key="mexicanoPairing" data-value="1-4">1+4 vs 2+3</button>
-          <button type="button" class="seg-btn ${s.mexicanoPairing === '1-3' ? 'is-on' : ''}" data-action="setting-val" data-key="mexicanoPairing" data-value="1-3">1+3 vs 2+4</button>
-        </div>`
-            : ''
-        }
-        <p class="field-label">Корты</p>
-        <div class="seg">
-          <button type="button" class="seg-btn ${s.courts === 2 ? 'is-on' : ''}" data-action="courts" data-n="2">2 · 8</button>
-          <button type="button" class="seg-btn ${s.courts === 3 ? 'is-on' : ''}" data-action="courts" data-n="3">3 · 12</button>
-        </div>
-        <p class="field-label">М+Ж</p>
-        ${
-          okMixed
-            ? `<div class="seg">
-          <button type="button" class="seg-btn ${s.pairType === 'mixed' ? 'is-on' : ''}" data-action="setting-val" data-key="pairType" data-value="mixed">Да</button>
-          <button type="button" class="seg-btn ${s.pairType === 'any' ? 'is-on' : ''}" data-action="setting-val" data-key="pairType" data-value="any">Нет</button>
-        </div>`
-            : '<p class="hint">Нужно поровну М и Ж. Сейчас пары любые.</p>'
-        }
-        ${
-          format === 'free'
-            ? `<p class="field-label">Пары</p>
-        <div class="seg">
-          <button type="button" class="seg-btn ${s.pairLock !== 'unlocked' ? 'is-on' : ''}" data-action="setting-val" data-key="pairLock" data-value="locked">Закреплённые</button>
-          <button type="button" class="seg-btn ${s.pairLock === 'unlocked' ? 'is-on' : ''}" data-action="setting-val" data-key="pairLock" data-value="unlocked">Каждый круг</button>
-        </div>
-        ${
-          s.pairLock !== 'unlocked'
-            ? `<div class="seg">
-          <button type="button" class="seg-btn ${s.lockedMatchups !== 'roundrobin' ? 'is-on' : ''}" data-action="setting-val" data-key="lockedMatchups" data-value="strength">Соперники по силе</button>
-          <button type="button" class="seg-btn ${s.lockedMatchups === 'roundrobin' ? 'is-on' : ''}" data-action="setting-val" data-key="lockedMatchups" data-value="roundrobin">Круговой график</button>
-        </div>`
-            : ''
-        }`
-            : ''
-        }
-        <p class="field-label">Таблица</p>
-        <div class="seg">
-          <button type="button" class="seg-btn ${s.standingsSort !== 'wins' ? 'is-on' : ''}" data-action="setting-val" data-key="standingsSort" data-value="points">Очки</button>
-          <button type="button" class="seg-btn ${s.standingsSort === 'wins' ? 'is-on' : ''}" data-action="setting-val" data-key="standingsSort" data-value="wins">Победы</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Счёт</h2>
-        ${renderScoringFields(s)}
-      </div>
-      <div class="card">
-        <h2>Квалификация</h2>
-        <label class="toggle">
-          <input type="checkbox" data-action="toggle" data-key="qualifyingEnabled" ${s.qualifyingEnabled ? 'checked' : ''} />
-          <span>Сортировочный круг</span>
+        <h2>Настройки турнира</h2>
+        <label class="field">Название
+          <input class="input" data-action="tournament-name" value="${esc(tournament.name)}" maxlength="60" />
         </label>
-        ${
-          s.qualifyingEnabled
-            ? `<div class="seg">
-          <button type="button" class="seg-btn ${s.qualifyingPoints === 15 ? 'is-on' : ''}" data-action="qual-pts" data-n="15">До 15</button>
-          <button type="button" class="seg-btn ${s.qualifyingPoints === 17 ? 'is-on' : ''}" data-action="qual-pts" data-n="17">До 17</button>
-        </div>`
-            : ''
-        }
+        <p class="hint">${esc(setupSummary(tournament))}</p>
+        ${renderFormatSettings(s, { draft: false, players: tournament.players })}
       </div>
-      <div class="card danger-card">
-        <h2>Данные</h2>
-        <p class="hint">Только этот браузер. Сброс удалит игроков, круги и настройки.</p>
-        <button type="button" class="btn btn-danger" data-action="reset">Сбросить / начать заново</button>
+      <div class="card">
+        <h2>Файл этого турнира</h2>
+        <p class="hint">Экспорт только его. Импорт — добавить как новый или заменить этот, не молча.</p>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" data-action="export-one">Экспорт этого</button>
+          <button type="button" class="btn btn-ghost" data-action="import-file">Импорт из файла</button>
+        </div>
+      </div>
+      <div class="card">
+        <button type="button" class="btn btn-ghost" data-action="tab" data-tab="play" style="width:100%">К играм</button>
       </div>
     </section>
   `;

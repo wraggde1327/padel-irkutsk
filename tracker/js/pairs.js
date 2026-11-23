@@ -8,6 +8,41 @@ export function expectedPlayerCount(courts) {
   return Number(courts) * 4;
 }
 
+/** Корты = floor(игроков / 4). Лишние сидят по очереди. */
+export function autoCourts(playerCount) {
+  return Math.max(0, Math.floor(Number(playerCount) / 4));
+}
+
+export function rotateSitters(playerIds, roundIndex) {
+  const ids = playerIds.slice();
+  const sitCount = ids.length % 4;
+  if (sitCount === 0) return { sitting: [], playing: ids };
+  const n = ids.length;
+  const start = ((Number(roundIndex) % n) + n) % n;
+  const rotated = ids.slice(start).concat(ids.slice(0, start));
+  return { sitting: rotated.slice(0, sitCount), playing: rotated.slice(sitCount) };
+}
+
+export function splitSitters(players, roundIndex) {
+  const { sitting, playing } = rotateSitters(
+    players.map((p) => p.id),
+    roundIndex,
+  );
+  const playSet = new Set(playing);
+  return {
+    sitting,
+    playing,
+    playingPlayers: players.filter((p) => playSet.has(p.id)),
+  };
+}
+
+export function sittingNote(sitting, players) {
+  if (!sitting?.length) return '';
+  const byId = playersByIdMap(players);
+  const names = sitting.map((id) => byId.get(id)?.name || id).join(', ');
+  return `Не играют: ${names}`;
+}
+
 export function genderCounts(players) {
   let m = 0;
   let f = 0;

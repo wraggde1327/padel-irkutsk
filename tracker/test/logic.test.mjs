@@ -15,7 +15,9 @@ import {
   tennisLabel,
 } from '../js/scoring.js';
 import { computeStandings, sortStandings } from '../js/standings.js';
-import { clearState, emptyState, loadState, saveState, STORAGE_KEY } from '../js/state.js';
+import { clearState, emptyStore, emptyTournament, loadState, saveState, STORAGE_KEY } from '../js/state.js';
+import { autoCourts, rotateSitters } from '../js/pairs.js';
+import { pointsTarget } from '../js/scoring.js';
 
 function players8() {
   const names = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
@@ -220,15 +222,44 @@ test('standings accumulate wins and point delta, sort switches', () => {
 
 test('localStorage round-trip and reset', () => {
   const storage = memoryStorage();
-  const state = emptyState();
-  state.players = players8();
-  saveState(state, storage);
+  const store = emptyStore();
+  const tournament = emptyTournament();
+  tournament.players = players8();
+  store.tournaments.push(tournament);
+  saveState(store, storage);
   assert.ok(storage.getItem(STORAGE_KEY));
   const loaded = loadState(storage);
-  assert.equal(loaded.players.length, 8);
+  assert.equal(loaded.version, 2);
+  assert.equal(loaded.tournaments[0].players.length, 8);
   const cleared = clearState(storage);
-  assert.equal(cleared.players.length, 0);
+  assert.equal(cleared.tournaments.length, 0);
   assert.equal(storage.getItem(STORAGE_KEY), null);
+});
+
+test('auto courts: 8→2, 9→2, 12→3', () => {
+  assert.equal(autoCourts(8), 2);
+  assert.equal(autoCourts(9), 2);
+  assert.equal(autoCourts(12), 3);
+  assert.equal(autoCourts(4), 1);
+  assert.equal(autoCourts(3), 0);
+});
+
+test('fair bye rotation for 9 players', () => {
+  const ids = players8().map((p) => p.id).concat(['p9']);
+  const sits = ids.map((_, i) => rotateSitters(ids, i).sitting[0]);
+  assert.equal(new Set(sits).size, 9);
+  for (let i = 0; i < 9; i += 1) {
+    const { sitting, playing } = rotateSitters(ids, i);
+    assert.equal(sitting.length, 1);
+    assert.equal(playing.length, 8);
+  }
+});
+
+test('total-points target 16/21/24/32', () => {
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 24 }, 'regular'), 24);
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 16 }, 'regular'), 16);
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 'custom', customTotal: 32 }, 'regular'), 32);
+  assert.equal(autoFillOther(13, 21, false), 8);
 });
 
 test('12 players / 3 courts layout', () => {

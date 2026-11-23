@@ -345,8 +345,10 @@ test('migrate kingOfTheCourt true → format king', () => {
     }),
   );
   const loaded = loadState(storage);
-  assert.equal(loaded.settings.tournamentFormat, 'king');
-  assert.equal(loaded.settings.mexicanoPairing, '1-4');
+  assert.equal(loaded.version, 2);
+  assert.equal(loaded.tournaments.length, 1);
+  assert.equal(loaded.tournaments[0].settings.tournamentFormat, 'king');
+  assert.equal(loaded.tournaments[0].settings.mexicanoPairing, '1-4');
 });
 
 test('migrate free keeps saved players', () => {
@@ -365,7 +367,24 @@ test('migrate free keeps saved players', () => {
     storage,
   );
   const loaded = loadState(storage);
-  assert.equal(loaded.players.length, 8);
-  assert.equal(loaded.settings.tournamentFormat, 'free');
-  assert.equal(loaded.settings.pointsPreset, 11);
+  assert.equal(loaded.tournaments[0].players.length, 8);
+  assert.equal(loaded.tournaments[0].settings.tournamentFormat, 'free');
+  assert.equal(loaded.tournaments[0].settings.pointsPreset, 11);
+});
+
+test('generateRound 9 players: 2 courts and one bye', () => {
+  const players = nPlayers(9);
+  const result = generateRound({
+    players,
+    settings: { tournamentFormat: 'mexicano', pairType: 'any', mexicanoPairing: '1-4' },
+    standings: [],
+    rounds: [],
+    kind: 'regular',
+    rng: mulberry32(4),
+  });
+  assert.equal(result.matches.length, 2);
+  assert.equal(result.sitting.length, 1);
+  const playing = result.matches.flatMap((m) => [...m.teamA, ...m.teamB]);
+  assert.equal(new Set(playing).size, 8);
+  assert.equal(playing.includes(result.sitting[0]), false);
 });
