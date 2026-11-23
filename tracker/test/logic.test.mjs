@@ -14,6 +14,7 @@ import {
   autoFillGames,
   autoFillOther,
   autoFillScore,
+  clampScoreValue,
   freezeRoundScoring,
   isValidSetScore,
   matchComplete,
@@ -36,10 +37,9 @@ import {
   isTapGesture,
   nearestWheelValue,
   snapOffset,
-  stepInertia,
   wheelValues,
   wrapIndex,
-  WHEEL_FRICTION,
+  wrapLoopScrollTop,
   WHEEL_ITEM_PX,
 } from '../js/wheel.js';
 import { pointsTarget } from '../js/scoring.js';
@@ -403,8 +403,27 @@ test('auto-fill always re-syncs the opposite side', () => {
   assert.equal(applyScoreWithSync({ a: 9, b: 15 }, 'a', 10, total, 'regular').b, 14);
   assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 5, games, 'regular').b, 6);
   assert.equal(applyScoreWithSync({ a: 6, b: 4 }, 'b', 3, games, 'regular').a, 6);
-  assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 6, games, 'regular').b, 6);
+  assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 6, games, 'regular').b, 5);
   assert.equal(applyScoreWithSync({ a: 6, b: 3 }, 'a', 6, gamesNo, 'regular').b, 4);
+});
+
+test('games entry never above N and never N:N', () => {
+  const n4 = { scoringMode: 'games', setScore: true, gamesToWin: 4, decidingGame: true };
+  const n4no = { scoringMode: 'games', setScore: true, gamesToWin: 4, decidingGame: false };
+  assert.equal(scoreWheelMax(n4, 'regular'), 4);
+  assert.equal(clampScoreValue(5, n4, 'regular'), 4);
+  assert.equal(clampScoreValue(8, n4, 'regular'), 4);
+  const over = applyScoreWithSync({ a: null, b: null }, 'a', 5, n4, 'regular');
+  assert.equal(over.a, 4);
+  const tie = applyScoreWithSync({ a: 4, b: 4 }, 'a', 4, n4, 'regular');
+  assert.equal(tie.a, 4);
+  assert.equal(tie.b, 3);
+  assert.equal(isValidSetScore(4, 4, n4), false);
+  assert.equal(isValidSetScore(5, 4, n4), false);
+  assert.equal(isValidSetScore(4, 3, n4), true);
+  const noDec = applyScoreWithSync({ a: 4, b: 4 }, 'a', 4, n4no, 'regular');
+  assert.equal(noDec.a, 4);
+  assert.equal(noDec.b, 2);
 });
 
 test('games auto-fill: under N → N, N with/without decider', () => {
@@ -498,7 +517,7 @@ test('score wheel max is target or N, nearest snap', () => {
 
 test('looping wheel wraps both ways and snaps to nearest', () => {
   const values = wheelValues(6);
-  assert.deepEqual(values[0], '');
+  assert.equal(values[0], '');
   assert.equal(values[values.length - 1], 6);
   assert.equal(wrapIndex(-1, values.length), values.length - 1);
   assert.equal(wrapIndex(values.length, values.length), 0);
@@ -509,12 +528,9 @@ test('looping wheel wraps both ways and snaps to nearest', () => {
   assert.equal(pastMax.index, 0);
   const beforeEmpty = snapOffset(cycle - 8, values.length);
   assert.equal(beforeEmpty.index, 0);
-  const looping = { _wheelValues: values, _wheelOffset: cycle + (values.length - 1) * WHEEL_ITEM_PX };
-  assert.equal(nearestWheelValue(looping), 6);
-  looping._wheelOffset = cycle;
-  assert.equal(nearestWheelValue(looping), null);
-  assert.ok(Math.abs(stepInertia(10) - 10 * WHEEL_FRICTION) < 1e-9);
-  assert.ok(Math.abs(stepInertia(10)) < 10);
+  const pad = WHEEL_ITEM_PX;
+  assert.equal(wrapLoopScrollTop(cycle - pad - 10, values.length), 2 * cycle - pad - 10);
+  assert.equal(wrapLoopScrollTop(2 * cycle - pad + 10, values.length), cycle - pad + 10);
 });
 
 test('12 players / 3 courts layout', () => {

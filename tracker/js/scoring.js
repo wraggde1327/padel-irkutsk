@@ -107,6 +107,15 @@ export function autoFillScore(entered, settings, roundKind) {
  * и наоборот, даже если там уже есть значение. Если правило неоднозначно
  * (решающий при N, «с разницей в 2»), другую сторону не трогаем.
  */
+/** Обрезает ввод до диапазона барабана: 0…цель (очки) или 0…N (геймы). */
+export function clampScoreValue(raw, settings, roundKind) {
+  if (raw === '' || raw == null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  const v = Math.max(0, Math.round(n));
+  return Math.min(v, scoreWheelMax(settings, roundKind));
+}
+
 export function applyScoreWithSync(game, side, parsed, settings, roundKind, { fromUser = true } = {}) {
   const otherSide = side === 'a' ? 'b' : 'a';
   const next = {
@@ -114,12 +123,27 @@ export function applyScoreWithSync(game, side, parsed, settings, roundKind, { fr
     tennis: game.tennis || { ptsA: 0, ptsB: 0 },
     touched: { a: false, b: false, ...(game.touched || {}) },
   };
-  next[side] = parsed;
-  next.touched[side] = parsed != null;
+  const clamped = parsed == null || parsed === '' ? null : clampScoreValue(parsed, settings, roundKind);
+  next[side] = clamped;
+  next.touched[side] = clamped != null;
   if (fromUser) {
-    const other = autoFillScore(parsed, settings, roundKind);
+    const other = autoFillScore(clamped, settings, roundKind);
     if (other != null) {
       next[otherSide] = other;
+    } else if (
+      settings.scoringMode === 'games' &&
+      settings.setScore &&
+      roundKind !== 'qualifying' &&
+      clamped != null
+    ) {
+      const N = gamesToWin(settings);
+      if (clamped === N && Number(next[otherSide]) === N) {
+        next[otherSide] = settings.decidingGame ? N - 1 : Math.max(0, N - 2);
+      }
+    }
+    if (next[otherSide] != null && next[otherSide] !== '') {
+      const o = clampScoreValue(next[otherSide], settings, roundKind);
+      if (o != null) next[otherSide] = o;
     }
   }
   return next;

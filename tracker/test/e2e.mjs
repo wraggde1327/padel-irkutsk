@@ -365,7 +365,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.6');
+  assert.equal(sw.version, '0.7.7');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   const shell = await page.evaluate(() => {
     const app = document.getElementById('app');
@@ -462,6 +462,31 @@ async function main() {
   assert.equal(chrome.appTop, 0);
   assert.equal(chrome.appBottom, chrome.vh);
   assert.equal(chrome.tabsBottom, chrome.vh);
+  const swipe = await page.evaluate(() => {
+    const app = getComputedStyle(document.getElementById('app'));
+    const main = getComputedStyle(document.getElementById('main'));
+    const rights = [...document.querySelectorAll('#app *')].map((el) => el.getBoundingClientRect().right);
+    return {
+      appOx: app.overflowX,
+      mainOx: main.overflowX,
+      mainTouch: main.touchAction,
+      mainOverX: main.overscrollBehaviorX,
+      maxRight: rights.length ? Math.max(...rights) : 0,
+      vw: window.innerWidth,
+    };
+  });
+  assert.equal(swipe.appOx, 'hidden');
+  assert.equal(swipe.mainOx, 'hidden');
+  assert.match(String(swipe.mainTouch), /pan-y/);
+  assert.match(String(swipe.mainOverX), /^none/);
+  assert.ok(swipe.maxRight <= swipe.vw + 1, `element past viewport ${swipe.maxRight} > ${swipe.vw}`);
+  const histBefore = await page.evaluate(() => history.length);
+  await page.click('[data-tab="table"]');
+  await page.waitForSelector('table.standings');
+  await page.click('[data-tab="play"]');
+  await page.waitForSelector('.match-duel');
+  const histAfter = await page.evaluate(() => history.length);
+  assert.equal(histAfter, histBefore);
 
   await setIphoneSafe(page, true);
   const safeChrome = await page.evaluate((insets) => {
@@ -822,6 +847,14 @@ async function main() {
   await page.click('#btn-next-round');
   await page.waitForSelector('.match-duel .score-box');
   assert.equal(await page.locator('.match-duel .wheel').count(), 0);
+  assert.equal(await page.locator('text=Табло по очкам').count(), 0);
+  await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '8');
+  await page.waitForFunction(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    const g = t?.rounds[0]?.matches[0]?.games?.[0];
+    return g && g.a === 6;
+  });
   await page.locator('.score-box[data-side="a"]').first().click();
   await page.waitForSelector('.picker-sheet .wheel', { state: 'attached' });
   const wheelMeta = await page.locator('[data-wheel]').evaluate((el) => {
@@ -834,8 +867,8 @@ async function main() {
       hasTrack: Boolean(el.querySelector('[data-wheel-track]')),
     };
   });
-  assert.equal(wheelMeta.itemH, 56);
-  assert.ok(wheelMeta.wrapH >= 270, `wheel height ${wheelMeta.wrapH}`);
+  assert.equal(wheelMeta.itemH, 44);
+  assert.ok(wheelMeta.wrapH >= 120 && wheelMeta.wrapH <= 140, `wheel height ${wheelMeta.wrapH}`);
   assert.equal(wheelMeta.hasTrack, true);
   assert.ok(wheelMeta.copies >= (wheelMeta.max + 2) * 3, `copies ${wheelMeta.copies} max ${wheelMeta.max}`);
   const wheelBox = await page.locator('[data-wheel]').boundingBox();

@@ -1,7 +1,6 @@
 import { generateRound, kingOfTheCourtGroups, genderCounts, autoCourts } from './pairing.js';
 import {
   applyScoreWithSync,
-  applyTennisPoint,
   emptyGame,
   freezeRoundScoring,
   isGameComplete,
@@ -55,6 +54,13 @@ function restoreMainScroll(top) {
 
 function persist() {
   saveState(store);
+}
+
+function setHash(tab) {
+  const url = tab ? `${location.pathname}${location.search}#${tab}` : `${location.pathname}${location.search}`;
+  const current = `${location.pathname}${location.search}${location.hash}`;
+  if (current === url) return;
+  history.replaceState(null, '', url);
 }
 
 function tournament() {
@@ -482,7 +488,7 @@ function openTournament(id) {
   store.ui.tab = isFinished(t) ? 'table' : t.rounds.length ? 'play' : 'players';
   store.ui.renameId = null;
   store.ui.expandedRoundIds = [];
-  location.hash = store.ui.tab;
+  setHash(store.ui.tab);
   paint();
 }
 
@@ -496,7 +502,7 @@ function goHome() {
   store.ui.rebuildOffer = null;
   store.ui.renameId = null;
   closeScorePicker();
-  location.hash = '';
+  setHash('');
   paint();
 }
 
@@ -530,7 +536,7 @@ function finishCreate() {
   store.ui.activeId = created.id;
   store.ui.screen = 'tournament';
   store.ui.tab = 'players';
-  location.hash = 'players';
+  setHash('players');
   paint();
 }
 
@@ -645,15 +651,13 @@ function onClick(event) {
     'preset',
     'qual-pts',
     'total-pts',
-    'tennis-point',
     'open-score-picker',
-    'toggle-board',
     'finish-tournament',
   ]);
   if (t && isFinished(t) && frozen.has(action)) return;
   if (action === 'tab') {
     store.ui.tab = btn.dataset.tab;
-    location.hash = btn.dataset.tab;
+    setHash(btn.dataset.tab);
     closeScorePicker();
     paint();
     return;
@@ -748,7 +752,7 @@ function onClick(event) {
   }
   if (action === 'open-settings') {
     store.ui.tab = 'settings';
-    location.hash = 'settings';
+    setHash('settings');
     closeScorePicker();
     paint();
     return;
@@ -761,7 +765,7 @@ function onClick(event) {
     ) {
       t.finishedAt = nowIso();
       store.ui.tab = 'table';
-      location.hash = 'table';
+      setHash('table');
       closeScorePicker();
       store.ui.newPairsOpen = false;
       store.ui.rebuildOffer = null;
@@ -915,29 +919,6 @@ function onClick(event) {
     paint();
     return;
   }
-  if (action === 'toggle-board') {
-    const key = {
-      round: Number(btn.dataset.round),
-      court: Number(btn.dataset.court),
-      game: Number(btn.dataset.game),
-    };
-    const cur = store.ui.scoreboard;
-    store.ui.scoreboard =
-      cur && cur.round === key.round && cur.court === key.court && cur.game === key.game ? null : key;
-    paint();
-    return;
-  }
-  if (action === 'tennis-point' && t) {
-    const round = t.rounds[Number(btn.dataset.round)];
-    const match = round?.matches.find((m) => m.court === Number(btn.dataset.court));
-    const game = match?.games[Number(btn.dataset.game)];
-    if (game) {
-      const next = applyTennisPoint(game, btn.dataset.side);
-      match.games[Number(btn.dataset.game)] = next;
-      touchTournament(t);
-      paint();
-    }
-  }
 }
 
 function onChange(event) {
@@ -1072,7 +1053,7 @@ paint();
 window.padelTracker = {
   reset() {
     store = emptyStore();
-    location.hash = '';
+    setHash('');
     paint();
   },
   patchActive(patch) {
