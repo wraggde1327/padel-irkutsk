@@ -19,6 +19,9 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
 };
 
+const IPHONE_SAFE_TOP = 59;
+const IPHONE_SAFE_BOTTOM = 34;
+
 const NAMES8 = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
 const NAMES9 = [...NAMES8, 'Кира'];
 const NAMES12 = [...NAMES8, 'Кира', 'Лев', 'Маша', 'Никита'];
@@ -63,6 +66,47 @@ function startServer() {
       resolve({ server, url: `http://127.0.0.1:${port}/` });
     });
   });
+}
+
+function iphoneSafeCss(active) {
+  const top = active ? IPHONE_SAFE_TOP : 0;
+  const bottom = active ? IPHONE_SAFE_BOTTOM : 0;
+  return `
+    :root {
+      --safe-top: ${top}px;
+      --safe-bottom: ${bottom}px;
+    }
+    #iphone-safe-top, #iphone-safe-bottom {
+      position: fixed;
+      left: 0;
+      right: 0;
+      z-index: 80;
+      pointer-events: none;
+      display: ${active ? 'block' : 'none'};
+    }
+    #iphone-safe-top {
+      top: 0;
+      height: ${IPHONE_SAFE_TOP}px;
+      background: rgb(24 24 27 / 0.38);
+    }
+    #iphone-safe-bottom {
+      bottom: 0;
+      height: ${IPHONE_SAFE_BOTTOM}px;
+      background: rgb(24 24 27 / 0.22);
+    }
+  `;
+}
+
+async function setIphoneSafe(page, active) {
+  await page.evaluate(() => {
+    if (document.getElementById('iphone-safe-top')) return;
+    const top = document.createElement('div');
+    top.id = 'iphone-safe-top';
+    const bot = document.createElement('div');
+    bot.id = 'iphone-safe-bottom';
+    document.body.append(top, bot);
+  });
+  await page.addStyleTag({ content: iphoneSafeCss(active) });
 }
 
 async function typeScore(page, locator, value) {
@@ -321,7 +365,30 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.5');
+  assert.equal(sw.version, '0.7.6');
+  assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
+  const shell = await page.evaluate(() => {
+    const app = document.getElementById('app');
+    const cs = getComputedStyle(app);
+    const box = app.getBoundingClientRect();
+    return {
+      position: cs.position,
+      top: cs.top,
+      bottom: cs.bottom,
+      htmlPad: getComputedStyle(document.documentElement).paddingTop,
+      bodyPos: getComputedStyle(document.body).position,
+      appTop: box.top,
+      appBottom: box.bottom,
+      vh: window.innerHeight,
+    };
+  });
+  assert.equal(shell.position, 'fixed');
+  assert.equal(shell.top, '0px');
+  assert.equal(shell.bottom, '0px');
+  assert.equal(shell.htmlPad, '0px');
+  assert.equal(shell.bodyPos, 'fixed');
+  assert.equal(shell.appTop, 0);
+  assert.equal(shell.appBottom, shell.vh);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-home.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-home.png'), fullPage: true });
@@ -364,20 +431,74 @@ async function main() {
     const tab = document.querySelector('.tab');
     const app = document.getElementById('app');
     const top = document.querySelector('.top');
+    const h1 = document.querySelector('.top h1');
     const ts = tabs ? getComputedStyle(tabs) : null;
+    const appBox = app.getBoundingClientRect();
+    const tabsBox = tabs.getBoundingClientRect();
     return {
-      tabsPadTop: ts?.paddingTop,
+      tabsPadBottom: ts?.paddingBottom,
       tabH: tab ? tab.getBoundingClientRect().height : 0,
-      tabsH: tabs ? tabs.getBoundingClientRect().height : 0,
+      hasTrack: Boolean(document.querySelector('.tabs-track')),
+      hasIcon: Boolean(document.querySelector('.tab svg')),
       htmlPadTop: getComputedStyle(document.documentElement).paddingTop,
       appPadTop: app ? getComputedStyle(app).paddingTop : '',
+      appPos: app ? getComputedStyle(app).position : '',
       topPadTop: top ? getComputedStyle(top).paddingTop : '',
+      h1Top: h1 ? h1.getBoundingClientRect().top : 0,
+      appTop: appBox.top,
+      appBottom: appBox.bottom,
+      tabsBottom: tabsBox.bottom,
+      vh: window.innerHeight,
     };
   });
-  assert.equal(chrome.tabsPadTop, '0px');
-  assert.ok(chrome.tabH >= 55 && chrome.tabH <= 57, `tab height ${chrome.tabH}`);
-  assert.ok(chrome.tabsH >= 55 && chrome.tabsH <= 57, `tabs bar ${chrome.tabsH}`);
+  assert.equal(chrome.appPos, 'fixed');
+  assert.equal(chrome.htmlPadTop, '0px');
+  assert.equal(chrome.appPadTop, '0px');
   assert.equal(chrome.topPadTop, '10px');
+  assert.equal(chrome.tabsPadBottom, '0px');
+  assert.equal(chrome.hasTrack, true);
+  assert.equal(chrome.hasIcon, true);
+  assert.ok(chrome.tabH >= 47 && chrome.tabH <= 52, `tab height ${chrome.tabH}`);
+  assert.equal(chrome.appTop, 0);
+  assert.equal(chrome.appBottom, chrome.vh);
+  assert.equal(chrome.tabsBottom, chrome.vh);
+
+  await setIphoneSafe(page, true);
+  const safeChrome = await page.evaluate((insets) => {
+    const top = document.querySelector('.top');
+    const h1 = document.querySelector('.top h1');
+    const tabs = document.querySelector('.tabs');
+    const app = document.getElementById('app');
+    const appBox = app.getBoundingClientRect();
+    const tabsBox = tabs.getBoundingClientRect();
+    return {
+      topPad: parseFloat(getComputedStyle(top).paddingTop),
+      tabsPadBottom: parseFloat(getComputedStyle(tabs).paddingBottom),
+      h1Top: h1.getBoundingClientRect().top,
+      appTop: appBox.top,
+      appBottom: appBox.bottom,
+      tabsBottom: tabsBox.bottom,
+      tabsBg: getComputedStyle(tabs).backgroundColor,
+      vh: window.innerHeight,
+      insets,
+    };
+  }, { top: IPHONE_SAFE_TOP, bottom: IPHONE_SAFE_BOTTOM });
+  assert.ok(Math.abs(safeChrome.topPad - (10 + IPHONE_SAFE_TOP)) < 1, `header pad ${safeChrome.topPad}`);
+  assert.ok(safeChrome.h1Top >= IPHONE_SAFE_TOP, `title under status bar at ${safeChrome.h1Top}`);
+  assert.ok(Math.abs(safeChrome.tabsPadBottom - IPHONE_SAFE_BOTTOM) < 1, `tabs pad ${safeChrome.tabsPadBottom}`);
+  assert.equal(safeChrome.appTop, 0);
+  assert.equal(safeChrome.appBottom, safeChrome.vh);
+  assert.equal(safeChrome.tabsBottom, safeChrome.vh);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-safe-play.png') });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-iphone-safe-play.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('[data-action="go-home"]');
+  await page.waitForSelector('#btn-create');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-safe-home.png') });
+  await page.click('.home-open');
+  await page.waitForSelector('.tabs');
+  await setIphoneSafe(page, false);
   assert.equal(await page.locator('.summary-edit').count(), 0);
   assert.equal(await page.locator('text=Клавиатура').count(), 0);
   await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '9');
@@ -776,6 +897,11 @@ async function main() {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.click('[data-action="open-settings"]');
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-settings-dark.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('[data-tab="play"]');
+  await page.waitForSelector('.tabs');
+  await setIphoneSafe(page, true);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-iphone-safe-dark.png') });
 
   await browser.close();
   server.close();
