@@ -1,7 +1,14 @@
 import { generateRound, kingOfTheCourtGroups, expectedPlayerCount } from './pairing.js';
-import { autoFillOther, applyTennisPoint, emptyGame, matchComplete, neededGames } from './scoring.js';
+import {
+  autoFillOther,
+  applyTennisPoint,
+  emptyGame,
+  isGameComplete,
+  matchComplete,
+  neededGames,
+} from './scoring.js';
 import { computeStandings } from './standings.js';
-import { clearState, emptyState, ensureMatchGames, loadState, saveState } from './state.js';
+import { clearState, ensureMatchGames, loadState, saveState } from './state.js';
 import { renderApp } from './render.js';
 
 const root = document.getElementById('app');
@@ -66,38 +73,80 @@ function addPlayer(name) {
   paint();
 }
 
-function generate(kind) {
+function lastRound() {
+  return state.rounds[state.rounds.length - 1] || null;
+}
+
+function roundIsComplete(round) {
+  return Boolean(round && round.matches.every((m) => matchComplete(m, state.settings, round.kind)));
+}
+
+function roundHasScores(round) {
+  return Boolean(round && round.matches.some((m) => (m.games || []).some(isGameComplete)));
+}
+
+/** Незаконченный круг: либо выкинуть, либо оставить сыгранное и закрыть. */
+function resolveUnfinished({ discard, replaceEmpty }) {
+  const last = lastRound();
+  if (!last || roundIsComplete(last)) return;
+  if (!roundHasScores(last)) {
+    if (replaceEmpty) state.rounds.pop();
+    return;
+  }
+  if (discard) {
+    state.rounds.pop();
+    return;
+  }
+  for (const match of last.matches) {
+    match.games = (match.games || []).filter(isGameComplete);
+  }
+  last.closedEarly = true;
+}
+
+function generate(kind, method = null) {
   try {
     const standings = computeStandings(state.players, state.rounds, state.settings);
-    const last = state.rounds[state.rounds.length - 1];
+    const last = lastRound();
     let courtGroups = null;
     if (
       kind === 'regular' &&
+      !method &&
+      (state.settings.tournamentFormat || 'free') === 'free' &&
       state.settings.kingOfTheCourt &&
       last &&
-      last.matches.every((m) => matchComplete(m, state.settings, last.kind))
+      roundIsComplete(last)
     ) {
       courtGroups = kingOfTheCourtGroups(last.matches, state.settings, last.kind);
     }
-    const { matches, warning } = generateRound({
+    const result = generateRound({
       players: state.players,
       settings: state.settings,
       standings,
       rounds: state.rounds,
       kind,
       courtGroups,
+      method,
+      rankMode: state.ui.sort === 'delta' ? 'delta' : 'points',
     });
     const round = {
       id: `r${state.nextRoundNum}`,
       number: kind === 'qualifying' ? 0 : state.rounds.filter((r) => r.kind === 'regular').length + 1,
       kind,
-      matches,
+      format: result.format || (method ? 'free' : state.settings.tournamentFormat || 'free'),
+      matches: result.matches,
+      note: result.note || '',
+      courtGroups: result.courtGroups || null,
+      playerOrder: result.playerOrder || null,
+      override: Boolean(result.override || method),
+      closedEarly: false,
     };
     for (const match of round.matches) ensureMatchGames(match, state.settings, kind);
     state.nextRoundNum += 1;
     state.rounds.push(round);
     state.ui.tab = 'play';
-    if (warning) toast(warning);
+    state.ui.newPairsOpen = false;
+    if (result.warning) toast(result.warning);
+    else if (result.note) toast(result.note);
     paint();
   } catch (err) {
     toast(err instanceof Error ? err.message : 'Не удалось сгенерировать пары');
@@ -105,15 +154,16 @@ function generate(kind) {
   }
 }
 
-function regenLast() {
-  const last = state.rounds[state.rounds.length - 1];
-  if (!last) return;
-  if (last.matches.some((m) => (m.games || []).some((g) => g.a != null && g.a !== ''))) {
-    toast('Сначала очистите счёт, если хотите новые пары.');
-    return;
+function applyNewPairs(method) {
+  const last = lastRound();
+  const complete = roundIsComplete(last);
+  const hasScores = roundHasScores(last);
+  if (last && !complete && hasScores) {
+    resolveUnfinished({ discard: state.ui.discardUnfinished, replaceEmpty: false });
+  } else if (last && !complete && !hasScores) {
+    state.rounds.pop();
   }
-  state.rounds.pop();
-  generate(last.kind);
+  generate('regular', method);
 }
 
 let scorePaintTimer = 0;
@@ -186,8 +236,22 @@ function onClick(event) {
     generate(btn.dataset.kind);
     return;
   }
-  if (action === 'regen-round') {
-    regenLast();
+  if (action === 'open-new-pairs') {
+    state.ui.newPairsOpen = true;
+    state.ui.discardUnfinished = false;
+    paint();
+    return;
+  }
+  if (action === 'close-new-pairs') {
+    state.ui.newPairsOpen = false;
+    paint();
+    return;
+  }
+  if (action === 'new-pairs') {
+    applyNewPairs(btn.dataset.method);
+    return;
+  }
+  if (action === 'toggle-ui' && btn.matches('input[type="checkbox"]')) {
     return;
   }
   if (action === 'sort') {
@@ -260,6 +324,11 @@ function onChange(event) {
   if (action === 'toggle' && el instanceof HTMLInputElement) {
     state.settings[el.dataset.key] = el.checked;
     paint();
+    return;
+  }
+  if (action === 'toggle-ui' && el instanceof HTMLInputElement) {
+    state.ui[el.dataset.key] = el.checked;
+    persist();
     return;
   }
   if (action === 'setting') {
