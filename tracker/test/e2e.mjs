@@ -290,8 +290,8 @@ async function main() {
   assert.ok(await page.locator('[data-key="mexicanoPairing"][data-value="1-4"]').isVisible());
   assert.ok(await page.locator('[data-key="mexicanoPairing"][data-value="1-3"]').isVisible());
   assert.ok(await page.locator('text=1-4, 2-3').count());
-  assert.ok(await page.locator('text=Полный круг').count());
-  assert.equal(await page.locator('text=По циклу').count(), 0);
+  assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
+  assert.equal(await page.locator('text=Сколько кругов').count(), 0);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-create-settings.png'), fullPage: true });
   await page.click('#btn-create-ok');
   await page.waitForSelector('#add-name');
@@ -333,6 +333,10 @@ async function main() {
   await page.waitForFunction(() => document.querySelectorAll('.round').length === 2);
   assert.equal(await page.locator('.round.is-collapsed').count(), 1);
   assert.ok(await page.locator('.round.is-current .match-duel').count());
+  const roundTitles = await page.locator('.round h3').allInnerTexts();
+  assert.match(roundTitles[0], /Круг 2/);
+  assert.match(roundTitles[1], /Круг 1/);
+  assert.ok(await page.locator('.round').first().evaluate((el) => el.classList.contains('is-current')));
   assert.match(await page.locator('.round.is-collapsed .round-summary-line').first().innerText(), /Корт 1:/);
   assert.ok((await page.locator('.round.is-collapsed .round-summary-line').count()) >= 2);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-rounds-collapsed.png'), fullPage: true });
@@ -343,6 +347,35 @@ async function main() {
   await page.waitForSelector('.round:not(.is-current) .match-duel');
   assert.equal(await page.locator('.round.is-collapsed').count(), 0);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-round-expanded.png'), fullPage: true });
+
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('#btn-finish');
+  assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-finish.png'), fullPage: true });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.click('#btn-finish');
+  await page.waitForSelector('text=Итог');
+  assert.equal(await page.locator('h2').first().innerText(), 'Итог');
+  assert.match(await page.locator('.eyebrow').innerText(), /Завершён/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-finished-table.png'), fullPage: true });
+  await page.click('[data-tab="play"]');
+  assert.equal(await page.locator('#btn-next-round').count(), 0);
+  assert.equal(await page.locator('.score-box.is-readonly').count() > 0, true);
+
+  await page.click('[data-action="go-home"]');
+  await page.waitForSelector('#btn-create');
+  assert.match(await page.locator('.home-open').first().innerText(), /Завершён/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-home-finished.png'), fullPage: true });
+  await page.click('.home-open');
+  await page.waitForSelector('table.standings');
+  assert.equal(await page.locator('h2').first().innerText(), 'Итог');
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('#btn-reopen');
+  await page.click('#btn-reopen');
+  await page.waitForSelector('#btn-finish');
+  await page.click('[data-tab="play"]');
+  await page.waitForSelector('.score-box[data-action="open-score-picker"]');
+  assert.equal(await page.locator('.score-box.is-readonly').count(), 0);
 
   await page.click('[data-action="go-home"]');
   await page.waitForSelector('#btn-create');

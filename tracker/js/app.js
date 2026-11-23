@@ -18,8 +18,10 @@ import {
   defaultSettingsFor,
   emptyStore,
   ensureMatchGames,
+  isFinished,
   loadState,
   newTournament,
+  nowIso,
   saveState,
   touchTournament,
 } from './state.js';
@@ -225,7 +227,7 @@ function findPlayer(id) {
 
 function addPlayer(name) {
   const t = tournament();
-  if (!t) return;
+  if (!t || isFinished(t)) return;
   const trimmed = name.trim();
   if (!trimmed) return;
   const gender = t.players.length % 2 === 0 ? 'M' : 'F';
@@ -281,7 +283,7 @@ function resolveUnfinished({ discard, replaceEmpty }) {
 
 function generate(kind, method = null) {
   const t = tournament();
-  if (!t) return;
+  if (!t || isFinished(t)) return;
   try {
     const { m, f } = genderCounts(t.players);
     if ((t.settings.pairType === 'mixed' || t.settings.formatVariant === 'mixed') && m !== f) {
@@ -381,7 +383,7 @@ function writeLiveScore(roundIndex, court, gameIndex, side, value) {
 
 function setScore(roundIndex, court, gameIndex, side, raw, fromUser, opts = {}) {
   const t = tournament();
-  if (!t) return;
+  if (!t || isFinished(t)) return;
   const round = t.rounds[roundIndex];
   if (!round) return;
   const match = round.matches.find((m) => m.court === Number(court));
@@ -477,7 +479,7 @@ function openTournament(id) {
   if (!t) return;
   store.ui.activeId = id;
   store.ui.screen = 'tournament';
-  store.ui.tab = t.rounds.length ? 'play' : 'players';
+  store.ui.tab = isFinished(t) ? 'table' : t.rounds.length ? 'play' : 'players';
   store.ui.renameId = null;
   store.ui.expandedRoundIds = [];
   location.hash = store.ui.tab;
@@ -620,6 +622,26 @@ function onClick(event) {
   if (!btn) return;
   const action = btn.dataset.action;
   const t = tournament();
+  const frozen = new Set([
+    'gender',
+    'remove-player',
+    'gen-round',
+    'rebuild-next',
+    'rebuild-skip',
+    'toggle-bool',
+    'setting-val',
+    'open-new-pairs',
+    'close-new-pairs',
+    'new-pairs',
+    'preset',
+    'qual-pts',
+    'total-pts',
+    'tennis-point',
+    'open-score-picker',
+    'toggle-board',
+    'finish-tournament',
+  ]);
+  if (t && isFinished(t) && frozen.has(action)) return;
   if (action === 'tab') {
     store.ui.tab = btn.dataset.tab;
     location.hash = btn.dataset.tab;
@@ -708,6 +730,29 @@ function onClick(event) {
     store.ui.tab = 'settings';
     location.hash = 'settings';
     closeScorePicker();
+    paint();
+    return;
+  }
+  if (action === 'finish-tournament' && t && !isFinished(t)) {
+    if (
+      window.confirm(
+        'Завершить турнир? Таблица сохранится, правки счёта и новые круги будут закрыты. Потом можно открыть снова.',
+      )
+    ) {
+      t.finishedAt = nowIso();
+      store.ui.tab = 'table';
+      location.hash = 'table';
+      closeScorePicker();
+      store.ui.newPairsOpen = false;
+      store.ui.rebuildOffer = null;
+      touchTournament(t);
+      paint();
+    }
+    return;
+  }
+  if (action === 'reopen-tournament' && t && isFinished(t)) {
+    t.finishedAt = null;
+    touchTournament(t);
     paint();
     return;
   }
@@ -880,6 +925,7 @@ function onChange(event) {
   const action = el.dataset.action;
   const t = tournament();
   if (action === 'rename' && el instanceof HTMLInputElement && t) {
+    if (isFinished(t)) return;
     const p = findPlayer(el.dataset.id);
     if (p) p.name = el.value;
     touchTournament(t);
@@ -887,6 +933,7 @@ function onChange(event) {
     return;
   }
   if (action === 'tournament-name' && el instanceof HTMLInputElement && t) {
+    if (isFinished(t)) return;
     t.name = el.value;
     touchTournament(t);
     persist();
@@ -898,6 +945,7 @@ function onChange(event) {
     return;
   }
   if (action === 'toggle' && el instanceof HTMLInputElement && t) {
+    if (isFinished(t)) return;
     patchLiveSettings(t, { [el.dataset.key]: el.checked });
     touchTournament(t);
     paint();
@@ -922,6 +970,7 @@ function onChange(event) {
       return;
     }
     if (t) {
+      if (isFinished(t)) return;
       patchLiveSettings(t, { [key]: key === 'scoringMode' ? el.value : value });
       touchTournament(t);
       paint();

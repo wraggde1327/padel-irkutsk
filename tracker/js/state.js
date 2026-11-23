@@ -26,7 +26,6 @@ export function defaultSettings() {
     standingsSort: 'points',
     totalPoints: 24,
     customTotal: 24,
-    roundsLimit: 'full',
   };
 }
 
@@ -78,6 +77,7 @@ export function emptyTournament() {
     fixedPairs: [],
     nextPlayerNum: 1,
     nextRoundNum: 1,
+    finishedAt: null,
   };
 }
 
@@ -117,9 +117,7 @@ export function migrateSettings(rawSettings, rounds) {
   if (!['16', '21', '24', '32', 'custom', 16, 21, 24, 32].includes(settings.totalPoints)) {
     settings.totalPoints = 24;
   }
-  if (settings.roundsLimit !== 'full' && !Number.isFinite(Number(settings.roundsLimit))) {
-    settings.roundsLimit = 'full';
-  }
+  delete settings.roundsLimit;
   if (settings.pointsPreset !== 'custom') {
     const n = Number(settings.pointsPreset);
     if (!POINTS_PRESETS.includes(n)) {
@@ -152,7 +150,12 @@ export function normalizeTournament(raw, fallbackId = 't1') {
     fixedPairs: Array.isArray(raw?.fixedPairs) ? raw.fixedPairs : [],
     nextPlayerNum: Number(raw?.nextPlayerNum) || 1,
     nextRoundNum: Number(raw?.nextRoundNum) || 1,
+    finishedAt: typeof raw?.finishedAt === 'string' && raw.finishedAt ? raw.finishedAt : null,
   };
+}
+
+export function isFinished(tournament) {
+  return Boolean(tournament && tournament.finishedAt);
 }
 
 function looksLikeV1(raw) {

@@ -4,6 +4,7 @@ import {
   applyImport,
   defaultSettingsFor,
   emptyStore,
+  isFinished,
   loadState,
   newTournament,
   STORAGE_KEY,
@@ -110,6 +111,43 @@ test('migrate v1 single save into home list', () => {
   assert.equal(loaded.tournaments.length, 1);
   assert.equal(loaded.tournaments[0].players[0].name, 'Борис');
   assert.equal(loaded.tournaments[0].settings.tournamentFormat, 'mexicano');
+});
+
+test('migrate drops roundsLimit; missing finishedAt stays open', () => {
+  const storage = memoryStorage();
+  storage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      version: 2,
+      tournaments: [
+        {
+          id: 't1',
+          name: 'Старый',
+          settings: { tournamentFormat: 'americano', roundsLimit: '8' },
+          players: [],
+          rounds: [],
+        },
+      ],
+      nextTournamentNum: 2,
+      ui: {},
+    }),
+  );
+  const loaded = loadState(storage);
+  assert.equal('roundsLimit' in loaded.tournaments[0].settings, false);
+  assert.equal(loaded.tournaments[0].finishedAt, null);
+  assert.equal(isFinished(loaded.tournaments[0]), false);
+});
+
+test('finishedAt round-trips and import keeps it', () => {
+  const store = emptyStore();
+  const t = newTournament(store, { name: 'Финиш', settings: defaultSettingsFor('free') });
+  t.finishedAt = '2026-11-23T12:00:00.000Z';
+  assert.equal(isFinished(t), true);
+  const incoming = [{ name: 'Из файла', finishedAt: '2026-01-01T00:00:00.000Z', settings: { tournamentFormat: 'king' } }];
+  applyImport(store, incoming, 'add');
+  const added = store.tournaments[store.tournaments.length - 1];
+  assert.equal(added.finishedAt, '2026-01-01T00:00:00.000Z');
+  assert.equal(isFinished(added), true);
 });
 
 test('buildExportPayload tags the app', () => {
