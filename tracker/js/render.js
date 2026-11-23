@@ -134,10 +134,12 @@ export function renderApp(root, store) {
     <main class="main" id="main">${renderScreen(store, tournament, screen, tab)}</main>
     ${
       inTournament
-        ? `<nav class="tabs tabs-3" aria-label="Разделы">
-            ${tabBtn('players', 'Участники', tab)}
-            ${tabBtn('play', 'Игры', tab)}
-            ${tabBtn('table', 'Таблица', tab)}
+        ? `<nav class="tabs" aria-label="Разделы">
+            <div class="tabs-track">
+              ${tabBtn('players', 'Участники', tab)}
+              ${tabBtn('play', 'Игры', tab)}
+              ${tabBtn('table', 'Таблица', tab)}
+            </div>
           </nav>`
         : ''
     }
@@ -176,10 +178,17 @@ function renderHeader(store, tournament, screen) {
   </header>`;
 }
 
+const TAB_ICONS = {
+  players: `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-8 0a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 8 11zm8 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm-8 1c-.29 0-.62.02-.97.05C6.27 14.7 4 15.76 4 17.5V19h4v-2c0-.7.26-1.35.7-1.94C8.47 14.04 8.24 14 8 14z"/></svg>`,
+  play: `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zm1 3v10h8V7H8zm3.2 2.4 4.2 2.6-4.2 2.6V9.4z"/></svg>`,
+  table: `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 3v2h14V8H5zm0 4v2h4v-2H5zm6 0v2h8v-2h-8zm-6 4v2h4v-2H5zm6 0v2h8v-2h-8z"/></svg>`,
+};
+
 function tabBtn(id, label, current) {
+  const icon = TAB_ICONS[id] || '';
   return `<button type="button" class="tab ${current === id ? 'is-on' : ''}" data-action="tab" data-tab="${id}" ${
     current === id ? 'aria-current="page"' : ''
-  }>${label}</button>`;
+  }>${icon}<span>${label}</span></button>`;
 }
 
 function renderScreen(store, tournament, screen, tab) {
