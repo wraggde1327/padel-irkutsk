@@ -32,7 +32,16 @@ import {
 } from '../js/qualification.js';
 import { clearState, emptyStore, emptyTournament, loadState, saveState, STORAGE_KEY } from '../js/state.js';
 import { autoCourts, compactMatchLine, compactSittingLine, rotateSitters } from '../js/pairs.js';
-import { isTapGesture, nearestWheelValue } from '../js/wheel.js';
+import {
+  isTapGesture,
+  nearestWheelValue,
+  snapOffset,
+  stepInertia,
+  wheelValues,
+  wrapIndex,
+  WHEEL_FRICTION,
+  WHEEL_ITEM_PX,
+} from '../js/wheel.js';
 import { pointsTarget } from '../js/scoring.js';
 
 function players8() {
@@ -485,6 +494,27 @@ test('score wheel max is target or N, nearest snap', () => {
   assert.equal(nearestWheelValue(el), null);
   el.scrollTop = 44 * 3;
   assert.equal(nearestWheelValue(el), 2);
+});
+
+test('looping wheel wraps both ways and snaps to nearest', () => {
+  const values = wheelValues(6);
+  assert.deepEqual(values[0], '');
+  assert.equal(values[values.length - 1], 6);
+  assert.equal(wrapIndex(-1, values.length), values.length - 1);
+  assert.equal(wrapIndex(values.length, values.length), 0);
+  const cycle = values.length * WHEEL_ITEM_PX;
+  const atMax = snapOffset(cycle + (values.length - 1) * WHEEL_ITEM_PX + 4, values.length);
+  assert.equal(atMax.index, values.length - 1);
+  const pastMax = snapOffset(cycle + values.length * WHEEL_ITEM_PX + 8, values.length);
+  assert.equal(pastMax.index, 0);
+  const beforeEmpty = snapOffset(cycle - 8, values.length);
+  assert.equal(beforeEmpty.index, 0);
+  const looping = { _wheelValues: values, _wheelOffset: cycle + (values.length - 1) * WHEEL_ITEM_PX };
+  assert.equal(nearestWheelValue(looping), 6);
+  looping._wheelOffset = cycle;
+  assert.equal(nearestWheelValue(looping), null);
+  assert.ok(Math.abs(stepInertia(10) - 10 * WHEEL_FRICTION) < 1e-9);
+  assert.ok(Math.abs(stepInertia(10)) < 10);
 });
 
 test('12 players / 3 courts layout', () => {

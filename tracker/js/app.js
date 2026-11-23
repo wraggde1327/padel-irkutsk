@@ -10,7 +10,7 @@ import {
   scoringSnapshot,
   settingsForRound,
 } from './scoring.js';
-import { isTapGesture, nearestWheelValue, scrollWheelTo, syncScoreWheels } from './wheel.js';
+import { attachLoopingWheel, scrollWheelTo, syncScoreWheels } from './wheel.js';
 import { computeStandings } from './standings.js';
 import {
   activeTournament,
@@ -35,6 +35,23 @@ const fileInput = document.getElementById('import-file');
 let store = loadState();
 let pickerTyping = false;
 let scrollAfterPaint = null;
+let lastPaintKey = '';
+
+function paintContextKey() {
+  return `${store.ui.screen || ''}|${store.ui.activeId || ''}|${store.ui.tab || ''}`;
+}
+
+function restoreMainScroll(top) {
+  const apply = () => {
+    const scroller = document.getElementById('main');
+    if (scroller) scroller.scrollTop = top;
+  };
+  apply();
+  requestAnimationFrame(() => {
+    apply();
+    requestAnimationFrame(apply);
+  });
+}
 
 function persist() {
   saveState(store);
@@ -57,17 +74,25 @@ function toast(message) {
 }
 
 function paint() {
+  const scroller = document.getElementById('main');
+  const paintKey = paintContextKey();
+  const keepScroll = Boolean(scroller && paintKey === lastPaintKey && !scrollAfterPaint);
+  const savedScroll = keepScroll ? scroller.scrollTop : 0;
   const active = document.activeElement;
-  const id = active && active.id;
+  const tag = active && active.tagName;
+  const restoreFocus = tag === 'INPUT' || tag === 'TEXTAREA';
+  const id = restoreFocus && active.id ? active.id : '';
   const keepType = pickerTyping && id === 'picker-score-input';
   const start = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   const end = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   renderApp(root, store);
   persist();
   bindScoreWheels();
+  lastPaintKey = paintKey;
   const backupOpen = Boolean(store.ui.backupOpen);
   document.documentElement.classList.toggle('is-backup-open', backupOpen);
   document.body.classList.toggle('is-backup-open', backupOpen);
+  if (keepScroll) restoreMainScroll(savedScroll);
   if (keepType) {
     startTyping();
     const el = document.getElementById('picker-score-input');
@@ -84,7 +109,7 @@ function paint() {
   if (id && id !== 'picker-score-input') {
     const el = document.getElementById(id);
     if (el && typeof el.focus === 'function') {
-      el.focus();
+      el.focus({ preventScroll: true });
       if (start != null && typeof el.setSelectionRange === 'function') {
         try {
           el.setSelectionRange(start, end ?? start);
@@ -120,7 +145,7 @@ function startTyping() {
   const input = document.getElementById('picker-score-input');
   if (!(input instanceof HTMLInputElement)) return;
   input.classList.remove('is-hidden');
-  input.focus();
+  input.focus({ preventScroll: true });
   input.select();
 }
 
@@ -159,63 +184,14 @@ function bindScoreWheels() {
 }
 
 function bindPickerWheel(el) {
-  let start = null;
-  el.addEventListener('scroll', onWheelScroll);
-  el.addEventListener('scrollend', onWheelCommit);
-  el.addEventListener('pointerdown', (event) => {
-    if (el.dataset.syncing) return;
-    start = { x: event.clientX, y: event.clientY, t: Date.now(), scrollTop: el.scrollTop };
-  });
-  el.addEventListener('pointerup', (event) => {
-    if (!start) return;
-    const end = { x: event.clientX, y: event.clientY, t: Date.now(), scrollTop: el.scrollTop };
-    const tap = isTapGesture(start, end);
-    start = null;
-    if (!tap || el.dataset.syncing) return;
-    const item = event.target instanceof Element ? event.target.closest('.wheel-item') : null;
-    if (!item || !el.contains(item)) return;
-    event.preventDefault();
-    const tapped = item.dataset.n ?? '';
-    const selected = nearestWheelValue(el);
-    const selectedKey = selected == null ? '' : String(selected);
-    if (tapped === selectedKey) {
+  attachLoopingWheel(el, {
+    onCommit(raw) {
+      setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, raw, true);
+    },
+    onCenterTap() {
       startTyping();
-      return;
-    }
-    el.dataset.value = tapped;
-    el.dataset.syncing = '1';
-    setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, tapped, true);
+    },
   });
-  el.addEventListener('pointercancel', () => {
-    start = null;
-  });
-}
-
-function onWheelScroll(event) {
-  const el = event.currentTarget;
-  if (!(el instanceof HTMLElement) || el.dataset.syncing) return;
-  window.clearTimeout(el._wheelTimer);
-  el._wheelTimer = window.setTimeout(() => commitWheel(el), 90);
-}
-
-function onWheelCommit(event) {
-  const el = event.currentTarget;
-  if (!(el instanceof HTMLElement)) return;
-  window.clearTimeout(el._wheelTimer);
-  if (el.dataset.syncing) {
-    el.dataset.syncing = '';
-    return;
-  }
-  commitWheel(el);
-}
-
-function commitWheel(el) {
-  if (el.dataset.syncing) return;
-  const value = nearestWheelValue(el);
-  const raw = value == null ? '' : String(value);
-  if (raw === (el.dataset.value ?? '')) return;
-  el.dataset.value = raw;
-  setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, raw, true);
 }
 
 const SCORING_KEYS = new Set([
@@ -443,7 +419,7 @@ function setScore(roundIndex, court, gameIndex, side, raw, fromUser, opts = {}) 
     paint();
     return;
   }
-  if (opts.skipPaint) return;
+  if (opts.skipPaint || store.ui.scorePicker) return;
   scorePaintTimer = window.setTimeout(() => paint(), 180);
 }
 
