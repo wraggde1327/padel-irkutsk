@@ -28,6 +28,17 @@ const NAMES8 = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', '�
 const NAMES9 = [...NAMES8, 'Кира'];
 const NAMES12 = [...NAMES8, 'Кира', 'Лев', 'Маша', 'Никита'];
 
+async function assertSumChips(page, action) {
+  for (const n of [15, 17, 19, 21]) {
+    assert.ok(await page.locator(`[data-action="${action}"][data-n="${n}"]`).count(), `${action} ${n}`);
+  }
+  assert.ok(await page.locator(`[data-action="${action}"][data-n="custom"]`).count(), `${action} custom`);
+  assert.equal(await page.locator(`[data-action="${action}"]`).count(), 5, `${action} count`);
+  for (const n of [16, 24, 32]) {
+    assert.equal(await page.locator(`[data-action="${action}"][data-n="${n}"]`).count(), 0, `no even ${n}`);
+  }
+}
+
 async function importPlaywright() {
   try {
     return await import('playwright');
@@ -233,7 +244,7 @@ async function playFormat(page, { names, courts, format, rounds, screenshot, mex
     decidingGame: false,
     scoringMode: format === 'free' ? 'points' : 'total',
     pointsPreset: 15,
-    totalPoints: 24,
+    totalPoints: 21,
     pairType: 'any',
     formatVariant: 'classic',
     pairLock,
@@ -386,7 +397,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.12');
+  assert.equal(sw.version, '0.7.13');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -454,6 +465,8 @@ async function main() {
   assert.ok(await page.locator('text=1-4, 2-3').count());
   assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
   assert.equal(await page.locator('text=Сколько кругов').count(), 0);
+  await assertSumChips(page, 'draft-total');
+  assert.ok(await page.locator('[data-action="draft-total"][data-n="21"].is-on').count());
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-create-settings.png'), fullPage: true });
   await page.click('#btn-create-ok');
   await page.waitForSelector('#add-name');
@@ -738,19 +751,16 @@ async function main() {
   assert.equal(await page.locator('.summary-edit').count(), 0);
   assert.equal(await page.locator('text=Клавиатура').count(), 0);
   await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '9');
-  await page.waitForFunction(() => {
-    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
-    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
-    const g = t?.rounds[0]?.matches[0]?.games?.[0];
-    return g && g.a === 9 && g.b === 15;
-  });
+  const scored = async () =>
+    page.evaluate(() => {
+      const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+      const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+      const g = t?.rounds[0]?.matches[0]?.games?.[0];
+      return { a: g?.a, b: g?.b, total: t?.settings?.totalPoints, mode: t?.settings?.scoringMode };
+    });
+  assert.deepEqual(await scored(), { a: 9, b: 12, total: 21, mode: 'total' });
   await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '10');
-  await page.waitForFunction(() => {
-    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
-    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
-    const g = t?.rounds[0]?.matches[0]?.games?.[0];
-    return g && g.a === 10 && g.b === 14;
-  });
+  assert.deepEqual(await scored(), { a: 10, b: 11, total: 21, mode: 'total' });
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-match-layout.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-match-layout.png'), fullPage: true });
@@ -788,6 +798,13 @@ async function main() {
   assert.equal(await page.locator('#btn-finish').count(), 0);
   assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
   await page.waitForSelector('[data-key="scoringMode"]');
+  await assertSumChips(page, 'total-pts');
+  assert.ok(await page.locator('[data-action="total-pts"][data-n="21"].is-on').count());
+  await page.locator('.field-label', { hasText: 'Сумма очков' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-sum-chips.png') });
+  await page.evaluate(() => {
+    (document.scrollingElement || document.documentElement).scrollTop = 0;
+  });
   const headerStartTop = await page.evaluate(() => document.querySelector('.top').getBoundingClientRect().top);
   const scrolled = await page.evaluate(() => {
     const el = document.scrollingElement || document.documentElement;
@@ -876,6 +893,9 @@ async function main() {
   }
   assert.ok(await page.locator('[data-action="preset"][data-n="custom"]').count());
   assert.equal(await page.locator('[data-action="preset"][data-n="11"]').count(), 0);
+  await page.click('[data-key="scoringMode"][data-value="total"]');
+  await page.waitForSelector('[data-action="total-pts"][data-n="15"]');
+  await assertSumChips(page, 'total-pts');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-formats.png'), fullPage: true });
 
   const downloads = [];

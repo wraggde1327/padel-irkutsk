@@ -7,8 +7,8 @@ export function pointsTarget(settings, roundKind) {
   if (roundKind === 'qualifying') return settings.qualifyingPoints;
   if (settings.scoringMode === 'total') {
     return settings.totalPoints === 'custom'
-      ? Number(settings.customTotal) || 24
-      : Number(settings.totalPoints) || 24;
+      ? Number(settings.customTotal) || 21
+      : Number(settings.totalPoints) || 21;
   }
   if (settings.scoringMode === 'points') {
     return settings.pointsPreset === 'custom'

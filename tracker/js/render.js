@@ -435,12 +435,10 @@ function renderTotalPointsFields(s, { draft = false } = {}) {
   return `
     <p class="field-label">Сумма очков</p>
     <div class="seg wrap">
-      ${[16, 21, 24, 32]
-        .map(
-          (v) =>
-            `<button type="button" class="seg-btn ${Number(n) === v ? 'is-on' : ''}" data-action="${total}" data-n="${v}">${v}</button>`,
-        )
-        .join('')}
+      ${POINTS_PRESETS.map(
+        (v) =>
+          `<button type="button" class="seg-btn ${Number(n) === v ? 'is-on' : ''}" data-action="${total}" data-n="${v}">${v}</button>`,
+      ).join('')}
       <button type="button" class="seg-btn ${n === 'custom' ? 'is-on' : ''}" data-action="${total}" data-n="custom">Своё</button>
     </div>
     ${
