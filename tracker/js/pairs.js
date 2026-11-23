@@ -172,14 +172,20 @@ export function formatMatchLine(match, playersById) {
   return `Корт ${match.court}${seq}: ${a} — ${b}`;
 }
 
-/** Одна строка для свёрнутого круга: «К1: Иван+Маша 21:15 Пётр+Оля». */
+/** Одна строка на корт: «Корт 1: Вася/Маша 15:6 Ира/Катя». Пустой счёт — «–:–». */
 export function compactMatchLine(match, playersById, scoreText) {
   const name = (id) => playersById.get(id)?.name || id;
-  const a = `${name(match.teamA[0])}+${name(match.teamA[1])}`;
-  const b = `${name(match.teamB[0])}+${name(match.teamB[1])}`;
-  const court = match.sequence ? `К${match.court}·${match.sequence}` : `К${match.court}`;
-  const score = scoreText == null || scoreText === '' ? '—' : scoreText;
+  const a = `${name(match.teamA[0])}/${name(match.teamA[1])}`;
+  const b = `${name(match.teamB[0])}/${name(match.teamB[1])}`;
+  const court = match.sequence ? `Корт ${match.court}·${match.sequence}` : `Корт ${match.court}`;
+  const score = scoreText == null || scoreText === '' ? '–:–' : scoreText;
   return `${court}: ${a} ${score} ${b}`;
+}
+
+export function compactSittingLine(sitting, playersById) {
+  if (!sitting?.length) return '';
+  const names = sitting.map((id) => playersById.get(id)?.name || id).join(', ');
+  return `Сидят: ${names}`;
 }
 
 export function playersByIdMap(players) {

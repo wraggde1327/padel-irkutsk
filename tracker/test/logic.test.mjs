@@ -10,6 +10,7 @@ import {
 import { mulberry32 } from '../js/rng.js';
 import {
   applyTennisPoint,
+  applyScoreWithSync,
   autoFillGames,
   autoFillOther,
   autoFillScore,
@@ -21,12 +22,13 @@ import {
   scoreWheelMax,
   settingsForRound,
   tennisLabel,
+  POINTS_PRESETS,
 } from '../js/scoring.js';
 import { computeStandings, sortStandings } from '../js/standings.js';
 import { clearState, emptyStore, emptyTournament, loadState, saveState, STORAGE_KEY } from '../js/state.js';
-import { autoCourts, compactMatchLine, rotateSitters } from '../js/pairs.js';
+import { autoCourts, compactMatchLine, compactSittingLine, rotateSitters } from '../js/pairs.js';
+import { isTapGesture, nearestWheelValue } from '../js/wheel.js';
 import { pointsTarget } from '../js/scoring.js';
-import { nearestWheelValue } from '../js/wheel.js';
 
 function players8() {
   const names = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
@@ -49,6 +51,10 @@ function memoryStorage(initial = {}) {
     },
   };
 }
+
+test('points presets are 15, 17, 19, 21', () => {
+  assert.deepEqual(POINTS_PRESETS, [15, 17, 19, 21]);
+});
 
 test('auto-fill: other = target − entered when win-by-2 is off', () => {
   assert.equal(autoFillOther(9, 15, false), 6);
@@ -282,14 +288,39 @@ test('compact match line for collapsed rounds', () => {
     ['p2', { id: 'p2', name: 'Маша' }],
     ['p3', { id: 'p3', name: 'Пётр' }],
     ['p4', { id: 'p4', name: 'Оля' }],
+    ['p5', { id: 'p5', name: 'Кира' }],
   ]);
   const match = { court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'] };
-  assert.equal(compactMatchLine(match, playersById, '21:15'), 'К1: Иван+Маша 21:15 Пётр+Оля');
-  assert.equal(compactMatchLine(match, playersById, ''), 'К1: Иван+Маша — Пётр+Оля');
+  assert.equal(compactMatchLine(match, playersById, '21:15'), 'Корт 1: Иван/Маша 21:15 Пётр/Оля');
+  assert.equal(compactMatchLine(match, playersById, ''), 'Корт 1: Иван/Маша –:– Пётр/Оля');
   assert.equal(
     compactMatchLine({ ...match, sequence: 2 }, playersById, '15:7'),
-    'К1·2: Иван+Маша 15:7 Пётр+Оля',
+    'Корт 1·2: Иван/Маша 15:7 Пётр/Оля',
   );
+  assert.equal(compactSittingLine(['p5'], playersById), 'Сидят: Кира');
+  assert.equal(compactSittingLine([], playersById), '');
+});
+
+test('tap vs scroll: small movement is a tap', () => {
+  const start = { x: 10, y: 10, t: 1000, scrollTop: 0 };
+  assert.equal(isTapGesture(start, { x: 12, y: 11, t: 1120, scrollTop: 0 }), true);
+  assert.equal(isTapGesture(start, { x: 10, y: 40, t: 1180, scrollTop: 0 }), false);
+  assert.equal(isTapGesture(start, { x: 10, y: 10, t: 1600, scrollTop: 0 }), false);
+  assert.equal(isTapGesture(start, { x: 10, y: 10, t: 1100, scrollTop: 20 }), false);
+});
+
+test('auto-fill always re-syncs the opposite side', () => {
+  const points = { scoringMode: 'points', pointsPreset: 15, winByTwo: false };
+  const games = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: true };
+  const gamesNo = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: false };
+  const total = { scoringMode: 'total', totalPoints: 24 };
+  assert.deepEqual(applyScoreWithSync({ a: 9, b: 6 }, 'a', 10, points, 'regular').b, 5);
+  assert.deepEqual(applyScoreWithSync({ a: 10, b: 5 }, 'b', 7, points, 'regular').a, 8);
+  assert.equal(applyScoreWithSync({ a: 9, b: 15 }, 'a', 10, total, 'regular').b, 14);
+  assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 5, games, 'regular').b, 6);
+  assert.equal(applyScoreWithSync({ a: 6, b: 4 }, 'b', 3, games, 'regular').a, 6);
+  assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 6, games, 'regular').b, 6);
+  assert.equal(applyScoreWithSync({ a: 6, b: 3 }, 'a', 6, gamesNo, 'regular').b, 4);
 });
 
 test('games auto-fill: under N → N, N with/without decider', () => {

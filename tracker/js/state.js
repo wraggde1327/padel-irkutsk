@@ -1,4 +1,4 @@
-import { emptyGame, neededGames } from './scoring.js';
+import { emptyGame, neededGames, POINTS_PRESETS } from './scoring.js';
 import { formatTitle } from './formats.js';
 
 export const STORAGE_KEY = 'padel-mini-tracker-v1';
@@ -62,7 +62,7 @@ export function emptyUi() {
     confirmDeleteId: null,
     renameId: null,
     expandedRoundIds: [],
-    typedScoreKeys: [],
+    scorePicker: null,
   };
 }
 
@@ -119,6 +119,15 @@ export function migrateSettings(rawSettings, rounds) {
   }
   if (settings.roundsLimit !== 'full' && !Number.isFinite(Number(settings.roundsLimit))) {
     settings.roundsLimit = 'full';
+  }
+  if (settings.pointsPreset !== 'custom') {
+    const n = Number(settings.pointsPreset);
+    if (!POINTS_PRESETS.includes(n)) {
+      settings.customPoints = Number.isFinite(n) ? n : Number(settings.customPoints) || 15;
+      settings.pointsPreset = 'custom';
+    } else {
+      settings.pointsPreset = n;
+    }
   }
   if (rawSettings?.setupDone == null && Array.isArray(rounds) && rounds.length > 0) {
     settings.setupDone = true;
@@ -224,7 +233,7 @@ export function saveState(state, storage = globalThis.localStorage) {
     copy.ui.toast = '';
     copy.ui.importAsk = null;
     copy.ui.expandedRoundIds = [];
-    copy.ui.typedScoreKeys = [];
+    copy.ui.scorePicker = null;
   }
   storage?.setItem(STORAGE_KEY, JSON.stringify(copy));
 }

@@ -1,6 +1,17 @@
 /** Барабан счёта: scroll-snap, без зависимостей. */
 
 export const WHEEL_ITEM_PX = 44;
+export const TAP_MAX_PX = 10;
+export const TAP_MAX_MS = 350;
+
+export function isTapGesture(start, end) {
+  if (!start || !end) return false;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dt = end.t - start.t;
+  const ds = Math.abs((end.scrollTop ?? 0) - (start.scrollTop ?? 0));
+  return dt <= TAP_MAX_MS && dx * dx + dy * dy <= TAP_MAX_PX * TAP_MAX_PX && ds <= 4;
+}
 
 export function nearestWheelValue(el) {
   const mid = el.scrollTop + el.clientHeight / 2;
