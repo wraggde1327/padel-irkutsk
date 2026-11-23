@@ -27,12 +27,14 @@ import {
 } from './state.js';
 import { formatTitle } from './formats.js';
 import { renderApp } from './render.js';
+import { mustStartWithQualifying } from './qualification.js';
 import { buildExportPayload, downloadJson, exportFileName, parseImportJson } from './backup.js';
 
 const root = document.getElementById('app');
 const fileInput = document.getElementById('import-file');
 let store = loadState();
 let pickerTyping = false;
+let scrollAfterPaint = null;
 
 function persist() {
   saveState(store);
@@ -73,6 +75,7 @@ function paint() {
         /* not a text input */
       }
     }
+    scrollToPaintTarget();
     return;
   }
   if (id && id !== 'picker-score-input') {
@@ -88,6 +91,16 @@ function paint() {
       }
     }
   }
+  scrollToPaintTarget();
+}
+
+function scrollToPaintTarget() {
+  const target = scrollAfterPaint;
+  scrollAfterPaint = null;
+  if (!target) return;
+  requestAnimationFrame(() => {
+    document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 function closeScorePicker() {
@@ -284,6 +297,10 @@ function resolveUnfinished({ discard, replaceEmpty }) {
 function generate(kind, method = null) {
   const t = tournament();
   if (!t || isFinished(t)) return;
+  if (kind !== 'qualifying' && mustStartWithQualifying(t.settings, t.rounds)) {
+    toast('Сначала сыграйте квалификацию.');
+    return;
+  }
   try {
     const { m, f } = genderCounts(t.players);
     if ((t.settings.pairType === 'mixed' || t.settings.formatVariant === 'mixed') && m !== f) {
@@ -746,6 +763,7 @@ function onClick(event) {
       store.ui.newPairsOpen = false;
       store.ui.rebuildOffer = null;
       touchTournament(t);
+      scrollAfterPaint = 'final-standings';
       paint();
     }
     return;

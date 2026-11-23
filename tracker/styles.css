@@ -118,6 +118,25 @@ h3, h4 { margin: 0 0 8px; font-size: 15px; font-weight: 650; }
   font-weight: 600;
   font-size: 15px;
 }
+.play-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.play-bar .actions + .play-row { margin-top: 8px; }
+.play-row .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.25;
+  min-height: 52px;
+}
+.play-row .btn-finish {
+  width: auto;
+  min-height: 52px;
+}
 .finish-card { padding: 12px 16px; box-shadow: none; }
 .score-box.is-readonly { cursor: default; opacity: 0.9; }
 fieldset.is-readonly {
@@ -385,6 +404,16 @@ html.is-picker-open body {
 .standings th { color: var(--muted); font-size: 13px; font-weight: 600; }
 .standings .num { width: 28px; color: var(--muted); }
 .standings .name { font-weight: 600; }
+.standings .medal { font-style: normal; }
+.standings .best-woman {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+#final-standings { scroll-margin-top: 12px; }
 .pos { color: var(--ok); }
 .neg { color: var(--bad); }
 .field, .field-label { display: block; margin: 0 0 8px; font-size: 14px; font-weight: 600; }

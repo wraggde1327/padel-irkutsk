@@ -9,11 +9,17 @@ import {
   settingsForRound,
   tennisLabel,
 } from './scoring.js';
-import { computeStandings, sortStandings } from './standings.js';
+import { computeStandings, sortStandings, standingMarks } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
 import { FORMAT_OPTIONS, formatTitle } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
 import { activeTournament, ensureMatchGames, isFinished } from './state.js';
+import {
+  hasQualifyingRound,
+  mustStartWithQualifying,
+  qualificationTooLate,
+  roundMatchesComplete,
+} from './qualification.js';
 
 export function esc(value) {
   return String(value)
@@ -83,7 +89,11 @@ export function setupSummary(tournament) {
       : null,
     s.standingsSort === 'wins' ? 'таблица по победам' : 'таблица по очкам',
     scoringSummary(s),
-    s.tournamentFormat === 'free' && s.qualifyingEnabled ? 'есть квалификация' : null,
+    s.tournamentFormat === 'free' &&
+    s.qualifyingEnabled &&
+    (hasQualifyingRound(tournament.rounds) || tournament.rounds.length === 0)
+      ? 'есть квалификация'
+      : null,
   ].filter(Boolean);
   return parts.join(' · ');
 }
@@ -292,7 +302,7 @@ function renderCreateSettings(store) {
     </section>`;
 }
 
-function renderFormatSettings(s, { draft = false, players = [] } = {}) {
+function renderFormatSettings(s, { draft = false, players = [], hideQualifying = false } = {}) {
   const format = s.tournamentFormat || 'free';
   const action = draft ? 'draft-setting-val' : 'setting-val';
   const toggle = draft ? 'draft-toggle' : 'toggle';
@@ -309,8 +319,11 @@ function renderFormatSettings(s, { draft = false, players = [] } = {}) {
       </div>
       <h3>Счёт</h3>
       ${renderScoringFields(s, { lunda: false, draft })}
-      <h3>Квалификация</h3>
-      <p class="hint">Случайный круг до старта. Можно пропустить.</p>
+      ${
+        hideQualifying
+          ? ''
+          : `<h3>Квалификация</h3>
+      <p class="hint">Случайный круг до старта. Если включена — первый круг обязан быть квалификацией.</p>
       <div class="seg">
         <button type="button" class="seg-btn ${!s.qualifyingEnabled ? 'is-on' : ''}" data-action="${toggleBool}" data-key="qualifyingEnabled" data-value="0">Нет</button>
         <button type="button" class="seg-btn ${s.qualifyingEnabled ? 'is-on' : ''}" data-action="${toggleBool}" data-key="qualifyingEnabled" data-value="1">Да</button>
@@ -322,6 +335,7 @@ function renderFormatSettings(s, { draft = false, players = [] } = {}) {
               <button type="button" class="seg-btn ${s.qualifyingPoints === 17 ? 'is-on' : ''}" data-action="${draft ? 'draft-qual-pts' : 'qual-pts'}" data-n="17">До 17</button>
             </div>`
           : ''
+      }`
       }`;
   }
   return `
@@ -554,8 +568,8 @@ function renderPlay(store, tournament) {
   const last = tournament.rounds[tournament.rounds.length - 1];
   const lastSettings = last ? settingsForRound(last, tournament.settings) : tournament.settings;
   const lastDone = last && last.matches.every((m) => matchComplete(m, lastSettings, last.kind));
-  const canQual =
-    tournament.settings.qualifyingEnabled && !tournament.rounds.some((r) => r.kind === 'qualifying');
+  const mustQual = mustStartWithQualifying(tournament.settings, tournament.rounds);
+  const canQual = mustQual && (!last || lastDone);
   const format = tournament.settings.tournamentFormat || 'free';
   const nextLabel =
     format === 'king'
@@ -570,21 +584,26 @@ function renderPlay(store, tournament) {
 
   const finished = isFinished(tournament);
   const actions = [];
-  if (!finished && canQual && (!last || lastDone)) {
+  if (!finished && canQual) {
     actions.push(
-      `<button type="button" class="btn btn-ghost" data-action="gen-round" data-kind="qualifying">Квалификация</button>`,
+      `<button type="button" class="btn btn-primary" id="btn-qualifying" data-action="gen-round" data-kind="qualifying">Квалификация</button>`,
     );
   }
-  if (!finished && (!last || lastDone)) {
+  if (!finished && !mustQual && (!last || lastDone)) {
     actions.push(
       `<button type="button" class="btn btn-primary" id="btn-next-round" data-action="gen-round" data-kind="regular">${nextLabel}</button>`,
     );
   }
-  if (!finished && format === 'free') {
-    actions.push(
-      `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`,
-    );
-  }
+  const hidePairs = mustQual || (last && last.kind === 'qualifying' && !lastDone);
+  const pairBtn =
+    !finished && format === 'free' && !hidePairs
+      ? `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`
+      : '';
+  const finishBtn = !finished
+    ? `<button type="button" class="btn btn-finish" data-action="finish-tournament" id="btn-finish">Завершить турнир</button>`
+    : '';
+  const pairFinish =
+    pairBtn || finishBtn ? `<div class="play-row">${pairBtn}${finishBtn}</div>` : '';
 
   const history = tournament.rounds
     .map((round, index) =>
@@ -602,15 +621,16 @@ function renderPlay(store, tournament) {
           : ''
       }
       ${
-        actions.length
+        actions.length || pairFinish
           ? `<div class="card play-bar">
-        <div class="actions">${actions.join('')}</div>
+        ${actions.length ? `<div class="actions">${actions.join('')}</div>` : ''}
+        ${pairFinish}
       </div>`
           : ''
       }
       ${!finished && store.ui.rebuildOffer != null ? renderRebuildOffer() : ''}
       ${!finished && store.ui.newPairsOpen ? renderChangePairsPanel(store, last, lastDone) : ''}
-      ${history || '<div class="card"><p class="hint">Кругов ещё нет — нажмите «Начать круг».</p></div>'}
+      ${history || `<div class="card"><p class="hint">Кругов ещё нет — нажмите «${mustQual ? 'Квалификация' : 'Начать круг'}».</p></div>`}
     </section>
   `;
 }
@@ -881,18 +901,24 @@ function renderTable(store, tournament) {
     sort,
   );
   const playersById = new Map(tournament.players.map((p) => [p.id, p]));
+  const finished = isFinished(tournament);
+  const marks = finished ? standingMarks(rows) : [];
   const body = rows
-    .map(
-      (r, i) => `
+    .map((r, i) => {
+      const mark = marks[i];
+      const extras = [];
+      if (mark?.medal) extras.push(`<span class="medal" aria-hidden="true">${mark.medal}</span>`);
+      if (mark?.bestWoman) extras.push('<span class="best-woman">🎉 лучшая девушка</span>');
+      return `
       <tr>
         <td class="num">${i + 1}</td>
-        <td class="name">${esc(r.name)}</td>
+        <td class="name">${esc(r.name)}${extras.length ? ` ${extras.join(' ')}` : ''}</td>
         <td>${r.wins}</td>
         <td>${r.losses}</td>
         <td>${r.pointsFor}–${r.pointsAgainst}</td>
         <td class="${r.delta > 0 ? 'pos' : r.delta < 0 ? 'neg' : ''}">${r.delta > 0 ? '+' : ''}${r.delta}</td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join('');
   const history = tournament.rounds
     .map((round, index) => {
@@ -909,10 +935,9 @@ function renderTable(store, tournament) {
     })
     .reverse()
     .join('');
-  const finished = isFinished(tournament);
   return `
     <section class="stack">
-      <div class="card">
+      <div class="card" id="final-standings">
         <h2>${finished ? 'Итог' : 'Таблица'}</h2>
         ${finished ? '<p class="hint">Турнир завершён. Можно открыть снова в настройках.</p>' : ''}
         <div class="seg sort-seg" role="group" aria-label="Сортировка">
@@ -957,8 +982,20 @@ function renderSettings(store, tournament) {
         <p class="hint">${esc(setupSummary(tournament))}</p>
         ${
           finished
-            ? `<fieldset class="is-readonly" disabled>${renderFormatSettings(s, { draft: false, players: tournament.players })}</fieldset>`
-            : renderFormatSettings(s, { draft: false, players: tournament.players })
+            ? `<fieldset class="is-readonly" disabled>${renderFormatSettings(s, {
+                draft: false,
+                players: tournament.players,
+                hideQualifying: qualificationTooLate(tournament.rounds, (round) =>
+                  roundMatchesComplete(round, tournament.settings),
+                ),
+              })}</fieldset>`
+            : renderFormatSettings(s, {
+                draft: false,
+                players: tournament.players,
+                hideQualifying: qualificationTooLate(tournament.rounds, (round) =>
+                  roundMatchesComplete(round, tournament.settings),
+                ),
+              })
         }
       </div>
       <div class="card">
@@ -975,9 +1012,7 @@ function renderSettings(store, tournament) {
               <p class="hint">Турнир завершён. Таблица зафиксирована.</p>
               <button type="button" class="btn btn-ghost" data-action="reopen-tournament" id="btn-reopen">Открыть снова</button>
             </div>`
-          : `<div class="card finish-card">
-              <button type="button" class="btn btn-finish" data-action="finish-tournament" id="btn-finish">Завершить турнир</button>
-            </div>`
+          : ''
       }
     </section>
   `;
