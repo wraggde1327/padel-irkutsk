@@ -113,6 +113,38 @@ test('migrate v1 single save into home list', () => {
   assert.equal(loaded.tournaments[0].settings.tournamentFormat, 'mexicano');
 });
 
+test('migrate even sum presets 16/24/32 become custom', () => {
+  const storage = memoryStorage();
+  storage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      version: 2,
+      tournaments: [
+        {
+          id: 't1',
+          name: 'Старая сумма',
+          settings: { tournamentFormat: 'americano', scoringMode: 'total', totalPoints: 24 },
+          players: [],
+          rounds: [],
+        },
+        {
+          id: 't2',
+          name: 'Уже 21',
+          settings: { tournamentFormat: 'americano', scoringMode: 'total', totalPoints: 21 },
+          players: [],
+          rounds: [],
+        },
+      ],
+      nextTournamentNum: 3,
+      ui: {},
+    }),
+  );
+  const loaded = loadState(storage);
+  assert.equal(loaded.tournaments[0].settings.totalPoints, 'custom');
+  assert.equal(loaded.tournaments[0].settings.customTotal, 24);
+  assert.equal(loaded.tournaments[1].settings.totalPoints, 21);
+});
+
 test('migrate drops roundsLimit; missing finishedAt stays open', () => {
   const storage = memoryStorage();
   storage.setItem(

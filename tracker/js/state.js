@@ -24,18 +24,18 @@ export function defaultSettings() {
     pairLock: 'locked',
     lockedMatchups: 'strength',
     standingsSort: 'points',
-    totalPoints: 24,
-    customTotal: 24,
+    totalPoints: 21,
+    customTotal: 21,
   };
 }
 
-/** Настройки по формату. Lunda-подобные: сумма очков 16/21/24/32, без win-by-2. */
+/** Настройки по формату. Lunda-подобные: сумма очков 15/17/19/21, без win-by-2. */
 export function defaultSettingsFor(format) {
   const settings = defaultSettings();
   settings.tournamentFormat = format || 'free';
   if (format && format !== 'free') {
     settings.scoringMode = 'total';
-    settings.totalPoints = 24;
+    settings.totalPoints = 21;
     settings.winByTwo = false;
     settings.qualifyingEnabled = false;
     settings.pairLock = 'unlocked';
@@ -115,8 +115,14 @@ export function migrateSettings(rawSettings, rounds) {
   if (settings.scoringMode !== 'points' && settings.scoringMode !== 'games' && settings.scoringMode !== 'total') {
     settings.scoringMode = 'points';
   }
-  if (!['16', '21', '24', '32', 'custom', 16, 21, 24, 32].includes(settings.totalPoints)) {
-    settings.totalPoints = 24;
+  if (settings.totalPoints !== 'custom') {
+    const n = Number(settings.totalPoints);
+    if (!POINTS_PRESETS.includes(n)) {
+      settings.customTotal = Number.isFinite(n) ? n : Number(settings.customTotal) || 21;
+      settings.totalPoints = 'custom';
+    } else {
+      settings.totalPoints = n;
+    }
   }
   delete settings.roundsLimit;
   if (settings.pointsPreset !== 'custom') {

@@ -359,10 +359,12 @@ test('fair bye rotation for 9 players', () => {
   }
 });
 
-test('total-points target 16/21/24/32', () => {
-  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 24 }, 'regular'), 24);
-  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 16 }, 'regular'), 16);
-  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 'custom', customTotal: 32 }, 'regular'), 32);
+test('total-points target 15/17/19/21', () => {
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 21 }, 'regular'), 21);
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 15 }, 'regular'), 15);
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 17 }, 'regular'), 17);
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 19 }, 'regular'), 19);
+  assert.equal(pointsTarget({ scoringMode: 'total', totalPoints: 'custom', customTotal: 24 }, 'regular'), 24);
   assert.equal(autoFillOther(13, 21, false), 8);
 });
 
@@ -397,10 +399,10 @@ test('auto-fill always re-syncs the opposite side', () => {
   const points = { scoringMode: 'points', pointsPreset: 15, winByTwo: false };
   const games = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: true };
   const gamesNo = { scoringMode: 'games', setScore: true, gamesToWin: 6, decidingGame: false };
-  const total = { scoringMode: 'total', totalPoints: 24 };
+  const total = { scoringMode: 'total', totalPoints: 21 };
   assert.deepEqual(applyScoreWithSync({ a: 9, b: 6 }, 'a', 10, points, 'regular').b, 5);
   assert.deepEqual(applyScoreWithSync({ a: 10, b: 5 }, 'b', 7, points, 'regular').a, 8);
-  assert.equal(applyScoreWithSync({ a: 9, b: 15 }, 'a', 10, total, 'regular').b, 14);
+  assert.equal(applyScoreWithSync({ a: 9, b: 15 }, 'a', 10, total, 'regular').b, 11);
   assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 5, games, 'regular').b, 6);
   assert.equal(applyScoreWithSync({ a: 6, b: 4 }, 'b', 3, games, 'regular').a, 6);
   assert.equal(applyScoreWithSync({ a: 4, b: 6 }, 'a', 6, games, 'regular').b, 5);
@@ -499,7 +501,7 @@ test('standings: games difference and mixed modes sum recorded numbers', () => {
 test('score wheel max is target or N, nearest snap', () => {
   assert.equal(scoreWheelMax({ scoringMode: 'points', pointsPreset: 15 }, 'regular'), 15);
   assert.equal(scoreWheelMax({ scoringMode: 'games', gamesToWin: 6 }, 'regular'), 6);
-  assert.equal(scoreWheelMax({ scoringMode: 'total', totalPoints: 24 }, 'regular'), 24);
+  assert.equal(scoreWheelMax({ scoringMode: 'total', totalPoints: 21 }, 'regular'), 21);
   const items = ['', 0, 1, 2, 3].map((n, i) => ({
     dataset: { n: n === '' ? '' : String(n) },
     offsetTop: 44 + i * 44,
