@@ -172,6 +172,16 @@ export function formatMatchLine(match, playersById) {
   return `Корт ${match.court}${seq}: ${a} — ${b}`;
 }
 
+/** Одна строка для свёрнутого круга: «К1: Иван+Маша 21:15 Пётр+Оля». */
+export function compactMatchLine(match, playersById, scoreText) {
+  const name = (id) => playersById.get(id)?.name || id;
+  const a = `${name(match.teamA[0])}+${name(match.teamA[1])}`;
+  const b = `${name(match.teamB[0])}+${name(match.teamB[1])}`;
+  const court = match.sequence ? `К${match.court}·${match.sequence}` : `К${match.court}`;
+  const score = scoreText == null || scoreText === '' ? '—' : scoreText;
+  return `${court}: ${a} ${score} ${b}`;
+}
+
 export function playersByIdMap(players) {
   return new Map(players.map((p) => [p.id, p]));
 }

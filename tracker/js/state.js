@@ -10,6 +10,7 @@ export function defaultSettings() {
     customPoints: 15,
     winByTwo: true,
     gamesPerPairing: 1,
+    gamesToWin: 6,
     decidingGame: true,
     qualifyingEnabled: false,
     qualifyingPoints: 15,
@@ -60,6 +61,8 @@ export function emptyUi() {
     importAsk: null,
     confirmDeleteId: null,
     renameId: null,
+    expandedRoundIds: [],
+    typedScoreKeys: [],
   };
 }
 
@@ -220,6 +223,8 @@ export function saveState(state, storage = globalThis.localStorage) {
   if (copy.ui) {
     copy.ui.toast = '';
     copy.ui.importAsk = null;
+    copy.ui.expandedRoundIds = [];
+    copy.ui.typedScoreKeys = [];
   }
   storage?.setItem(STORAGE_KEY, JSON.stringify(copy));
 }

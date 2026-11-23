@@ -1,4 +1,4 @@
-import { countedGames, isGameComplete, gamesSum } from './scoring.js';
+import { countedGames, isGameComplete, gamesSum, settingsForRound } from './scoring.js';
 
 export function playerMap(players) {
   const map = new Map();
@@ -43,7 +43,8 @@ export function computeStandings(players, rounds, settings) {
       if (!rows.has(p.id)) rows.set(p.id, emptyRow(p));
     }
     for (const match of round.matches) {
-      const games = countedGames({ ...match, kind: round.kind }, settings).filter(isGameComplete);
+      const roundSettings = settingsForRound(round, settings);
+      const games = countedGames({ ...match, kind: round.kind }, roundSettings).filter(isGameComplete);
       const ids = [...match.teamA, ...match.teamB];
       for (const id of ids) {
         if (!rows.has(id)) {
