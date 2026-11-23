@@ -14,6 +14,9 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.png': 'image/png',
+  '.json': 'application/json; charset=utf-8',
 };
 
 const NAMES8 = ['Анна', 'Борис', 'Вера', 'Глеб', 'Даша', 'Егор', 'Женя', 'Илья'];
@@ -279,7 +282,56 @@ async function main() {
   });
   await page.goto(url, { waitUntil: 'networkidle' });
   await resetApp(page);
+  assert.equal(await page.locator('#btn-backup').getAttribute('aria-label'), 'Резервная копия');
+  assert.equal(await page.locator('h2', { hasText: 'Файл' }).count(), 0);
+  assert.equal(await page.locator('[data-action="export-all"]').count(), 0);
+  assert.equal(await page.locator('link[rel="manifest"]').getAttribute('href'), './manifest.webmanifest');
+  assert.equal(await page.locator('meta[name="apple-mobile-web-app-capable"]').getAttribute('content'), 'yes');
+  assert.equal(
+    await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
+    'black-translucent',
+  );
+  assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'), './icons/apple-touch-icon.png');
+  const manifest = await page.evaluate(async () => {
+    const res = await fetch('./manifest.webmanifest');
+    return { ok: res.ok, json: await res.json() };
+  });
+  assert.equal(manifest.ok, true);
+  assert.equal(manifest.json.name, 'Падел трекер');
+  assert.equal(manifest.json.display, 'standalone');
+  assert.equal(manifest.json.start_url, './');
+  const layout = await page.evaluate(() => {
+    const html = getComputedStyle(document.documentElement);
+    const body = getComputedStyle(document.body);
+    const main = getComputedStyle(document.getElementById('main'));
+    return {
+      htmlOverflow: html.overflow,
+      bodyOverflow: body.overflow,
+      htmlOverscroll: html.overscrollBehavior,
+      mainOverflow: main.overflowY,
+    };
+  });
+  assert.equal(layout.htmlOverflow, 'hidden');
+  assert.equal(layout.bodyOverflow, 'hidden');
+  assert.match(String(layout.htmlOverscroll), /^none/);
+  assert.equal(layout.mainOverflow, 'auto');
+  const sw = await page.evaluate(async () => {
+    const res = await fetch('./sw.js');
+    const text = await res.text();
+    return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
+  });
+  assert.equal(sw.ok, true);
+  assert.equal(sw.version, '0.7.4');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-home.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-home.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('#btn-backup');
+  await page.waitForSelector('#backup-sheet');
+  assert.ok(await page.locator('[data-action="export-all"]').isDisabled());
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-backup-sheet.png'), fullPage: true });
+  await page.click('[data-action="close-backup"]');
+  await page.waitForSelector('#backup-sheet', { state: 'detached' });
 
   await page.click('#btn-create');
   await page.waitForSelector('[data-action="pick-format"][data-format="americano"]');
@@ -437,6 +489,7 @@ async function main() {
   await page.click('[data-action="go-home"]');
   await page.waitForSelector('#btn-create');
   assert.equal(await page.locator('.home-open').count(), 2);
+  assert.equal(await page.locator('[data-action="export-all"]').count(), 0);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-home-two.png'), fullPage: true });
 
   const payload = await page.evaluate((key) => {
@@ -444,7 +497,14 @@ async function main() {
     return JSON.stringify({ app: 'padel-mini-tracker', version: 2, tournaments: store.tournaments });
   }, STORAGE_KEY);
 
+  await page.click('#btn-backup');
+  await page.waitForSelector('#backup-sheet');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-backup-sheet-full.png'), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-360-backup-sheet.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.click('[data-action="export-all"]');
+  await page.waitForSelector('#backup-sheet', { state: 'detached' });
   await page.waitForTimeout(400);
 
   page.once('dialog', (dialog) => dialog.accept());

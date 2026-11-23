@@ -65,6 +65,9 @@ function paint() {
   renderApp(root, store);
   persist();
   bindScoreWheels();
+  const backupOpen = Boolean(store.ui.backupOpen);
+  document.documentElement.classList.toggle('is-backup-open', backupOpen);
+  document.body.classList.toggle('is-backup-open', backupOpen);
   if (keepType) {
     startTyping();
     const el = document.getElementById('picker-score-input');
@@ -99,7 +102,11 @@ function scrollToPaintTarget() {
   scrollAfterPaint = null;
   if (!target) return;
   requestAnimationFrame(() => {
-    document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const el = document.getElementById(target);
+    const scroller = document.getElementById('main');
+    if (!el || !scroller) return;
+    const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   });
 }
 
@@ -509,6 +516,7 @@ function goHome() {
   store.ui.tab = 'players';
   store.ui.draft = null;
   store.ui.newPairsOpen = false;
+  store.ui.backupOpen = false;
   store.ui.rebuildOffer = null;
   store.ui.renameId = null;
   closeScorePicker();
@@ -519,6 +527,7 @@ function goHome() {
 function startCreate() {
   store.ui.screen = 'create-format';
   store.ui.draft = null;
+  store.ui.backupOpen = false;
   paint();
 }
 
@@ -590,11 +599,13 @@ function onImportFile(event) {
     try {
       const tournaments = parseImportJson(String(reader.result || ''));
       if (!store.tournaments.length && store.ui.screen !== 'tournament') {
+        store.ui.backupOpen = false;
         applyImport(store, tournaments, 'add');
         toast(`Добавлено: ${tournaments.length}`);
         paint();
         return;
       }
+      store.ui.backupOpen = false;
       store.ui.importAsk = { tournaments };
       paint();
     } catch (err) {
@@ -632,6 +643,11 @@ function onClick(event) {
   }
   if (event.target.closest('[data-picker-backdrop]')) {
     closeScorePicker();
+    paint();
+    return;
+  }
+  if (event.target.closest('[data-backup-backdrop]') && !event.target.closest('[data-backup-sheet]')) {
+    store.ui.backupOpen = false;
     paint();
     return;
   }
@@ -709,7 +725,18 @@ function onClick(event) {
     }
     return;
   }
+  if (action === 'open-backup') {
+    store.ui.backupOpen = true;
+    paint();
+    return;
+  }
+  if (action === 'close-backup') {
+    store.ui.backupOpen = false;
+    paint();
+    return;
+  }
   if (action === 'export-all') {
+    store.ui.backupOpen = false;
     exportTournaments(store.tournaments, 'turniry');
     return;
   }
@@ -1051,8 +1078,14 @@ window.addEventListener('hashchange', () => {
 });
 
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && store.ui.scorePicker) {
+  if (event.key !== 'Escape') return;
+  if (store.ui.scorePicker) {
     closeScorePicker();
+    paint();
+    return;
+  }
+  if (store.ui.backupOpen) {
+    store.ui.backupOpen = false;
     paint();
   }
 });
