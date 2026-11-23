@@ -141,7 +141,7 @@ button, input, select { font: inherit; color: inherit; }
   overflow-x: hidden;
   overscroll-behavior-x: none;
   touch-action: pan-y;
-  padding: 0 16px 16px;
+  padding: 14px 16px 16px;
   padding-bottom: var(--chrome-bottom, 0px);
   margin: 0;
 }
@@ -548,8 +548,8 @@ html.is-backup-open body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   margin: 0 auto;
-  padding: 0;
-  padding-bottom: var(--safe-bottom);
+  padding: 7px 0 5px;
+  padding-bottom: calc(5px + var(--safe-bottom));
   background: var(--bar);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
@@ -671,7 +671,8 @@ html.is-backup-open body {
 .callout p { margin: 0 0 8px; }
 .sheet { border-color: var(--fg); }
 .summary-line {
-  margin: 0;
+  /* § шапка: строка формата у заголовка; +14px — перед первой карточкой */
+  margin: -14px 0 14px;
   font-size: 13px;
   color: var(--muted);
   line-height: 1.35;
