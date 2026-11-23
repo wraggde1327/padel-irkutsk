@@ -4,12 +4,13 @@ import {
   isGameComplete,
   matchComplete,
   neededGames,
+  POINTS_PRESETS,
   scoreWheelMax,
   settingsForRound,
   tennisLabel,
 } from './scoring.js';
 import { computeStandings, sortStandings } from './standings.js';
-import { autoCourts, compactMatchLine, formatMatchLine, genderCounts } from './pairing.js';
+import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
 import { FORMAT_OPTIONS, formatTitle } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
 import { activeTournament, ensureMatchGames } from './state.js';
@@ -75,6 +76,11 @@ export function setupSummary(tournament) {
     n >= 4 ? `${ruCourts(courts)}${sit ? `, ${sit} сидят` : ''}` : 'мало игроков',
     s.pairType === 'mixed' || s.formatVariant === 'mixed' ? 'М+Ж' : 'любые пары',
     s.tournamentFormat === 'free' ? (s.pairLock === 'unlocked' ? 'пары каждый круг' : 'пары закреплены') : null,
+    s.tournamentFormat === 'americano' || s.tournamentFormat === 'mexicano'
+      ? s.mexicanoPairing === '1-3'
+        ? 'пары 1-3, 2-4'
+        : 'пары 1-4, 2-3'
+      : null,
     s.standingsSort === 'wins' ? 'таблица по победам' : 'таблица по очкам',
     scoringSummary(s),
     s.tournamentFormat === 'free' && s.qualifyingEnabled ? 'есть квалификация' : null,
@@ -101,6 +107,8 @@ function formatDate(iso) {
   }
 }
 
+const SETTINGS_GEAR = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.77 8.87a.5.5 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06-.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.14.24.4.34.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.06.24.26.42.5.42h3.8a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.12-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`;
+
 export function renderApp(root, store) {
   const screen = store.ui.screen || 'home';
   const tournament = activeTournament(store);
@@ -120,6 +128,7 @@ export function renderApp(root, store) {
           </nav>`
         : ''
     }
+    ${inTournament ? renderScorePicker(store, tournament) : ''}
   `;
 }
 
@@ -148,6 +157,7 @@ function renderHeader(store, tournament, screen) {
       <p class="eyebrow">${esc(formatTitle(tournament?.settings.tournamentFormat))}</p>
       <h1>${esc(name)}</h1>
     </div>
+    <button type="button" class="icon-btn settings-btn" data-action="open-settings" aria-label="Настройки турнира">${SETTINGS_GEAR}</button>
   </header>`;
 }
 
@@ -315,15 +325,7 @@ function renderFormatSettings(s, { draft = false, players = [] } = {}) {
   }
   return `
     ${format === 'americano' || format === 'mexicano' ? renderVariant(s, action, format) : renderMixed(s, action, okMixed, players)}
-    ${
-      format === 'mexicano'
-        ? `<p class="field-label">Пары в четвёрке</p>
-    <div class="seg">
-      <button type="button" class="seg-btn ${s.mexicanoPairing !== '1-3' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-4">1+4 vs 2+3</button>
-      <button type="button" class="seg-btn ${s.mexicanoPairing === '1-3' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-3">1+3 vs 2+4</button>
-    </div>`
-        : ''
-    }
+    ${format === 'americano' || format === 'mexicano' ? renderCourtPairing(s, action) : ''}
     ${renderRoundsLimit(s, draft)}
     <h3>Счёт матча</h3>
     <p class="hint">Как в Lunda: игра до суммы очков, без разницы в 2.</p>
@@ -347,6 +349,17 @@ function renderVariant(s, action, format) {
         <span>${format === 'mexicano' ? 'Закреплённые пары, соперники по силе (Team Mexicano).' : 'Закреплённые пары, круговой график соперников (Team Americano).'}</span>
       </button>
     </div>`;
+}
+
+function renderCourtPairing(s, action) {
+  const style = s.mexicanoPairing === '1-3' ? '1-3' : '1-4';
+  return `
+    <p class="field-label">Пары в четвёрке</p>
+    <div class="seg wrap">
+      <button type="button" class="seg-btn ${style === '1-4' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-4">1-4, 2-3</button>
+      <button type="button" class="seg-btn ${style === '1-3' ? 'is-on' : ''}" data-action="${action}" data-key="mexicanoPairing" data-value="1-3">1-3, 2-4</button>
+    </div>
+    <p class="hint">Кто с кем из 1-й…4-й на корте. В мексикано — по текущему рейтингу; в американо напарников задаёт полный круг.</p>`;
 }
 
 function renderPairLock(s, action) {
@@ -396,12 +409,12 @@ function renderRoundsLimit(s, draft) {
       ${presets
         .map((n) => {
           const on = String(val) === n || (n === 'full' && (val === 'full' || val == null));
-          const label = n === 'full' ? 'По циклу' : n;
+          const label = n === 'full' ? 'Полный круг' : n;
           return `<button type="button" class="seg-btn ${on ? 'is-on' : ''}" data-action="${action}" data-key="roundsLimit" data-value="${n}">${label}</button>`;
         })
         .join('')}
     </div>
-    <p class="hint">Корты считаются сами: игроков ÷ 4. Лишние сидят по очереди.</p>`;
+    <p class="hint">Полный круг — пока каждый не сыграет со всеми в напарниках. Либо остановиться после 4, 6 или 8 кругов. Корты: игроков ÷ 4, лишние сидят.</p>`;
 }
 
 function renderTotalPointsFields(s, { draft = false } = {}) {
@@ -433,7 +446,7 @@ function renderPointsFields(s, { draft = false } = {}) {
   return `
     <p class="field-label">До скольких</p>
     <div class="seg wrap">
-      ${[11, 15, 21].map((n) => `<button type="button" class="seg-btn ${s.pointsPreset === n ? 'is-on' : ''}" data-action="${preset}" data-n="${n}">${n}</button>`).join('')}
+      ${POINTS_PRESETS.map((n) => `<button type="button" class="seg-btn ${s.pointsPreset === n ? 'is-on' : ''}" data-action="${preset}" data-n="${n}">${n}</button>`).join('')}
       <button type="button" class="seg-btn ${s.pointsPreset === 'custom' ? 'is-on' : ''}" data-action="${preset}" data-n="custom">Своё</button>
     </div>
     ${
@@ -589,10 +602,7 @@ function renderPlay(store, tournament) {
 
   return `
     <section class="stack">
-      <p class="summary-line">
-        <span>${esc(setupSummary(tournament))}</span>
-        <button type="button" class="linkish summary-edit" data-action="open-settings">Настройки турнира</button>
-      </p>
+      <p class="summary-line">${esc(setupSummary(tournament))}</p>
       ${
         actions.length
           ? `<div class="card play-bar">
@@ -664,17 +674,19 @@ function roundTitle(round, index) {
   return `Круг ${n}${fmt}${early}`;
 }
 
-function compactRoundLine(round, playersById) {
-  return round.matches
+function compactRoundHtml(round, playersById) {
+  const lines = round.matches
     .slice()
     .sort((a, b) => a.court - b.court || (a.sequence || 0) - (b.sequence || 0))
     .map((m) => {
       const games = (m.games || []).filter(isGameComplete);
       const sum = gamesSum(games);
       const score = games.length ? `${sum.a}:${sum.b}` : '';
-      return compactMatchLine(m, playersById, score);
-    })
-    .join(' · ');
+      return `<span class="round-summary-line">${esc(compactMatchLine(m, playersById, score))}</span>`;
+    });
+  const byes = compactSittingLine(round.sitting, playersById);
+  if (byes) lines.push(`<span class="round-summary-byes">${esc(byes)}</span>`);
+  return `<span class="round-summary">${lines.join('')}</span>`;
 }
 
 function isRoundExpanded(store, round, isCurrent) {
@@ -685,7 +697,7 @@ function isRoundExpanded(store, round, isCurrent) {
 function renderRound(store, tournament, round, index, playersById, isCurrent) {
   const expanded = isRoundExpanded(store, round, isCurrent);
   const title = roundTitle(round, index);
-  const summary = compactRoundLine(round, playersById);
+  const summary = compactRoundHtml(round, playersById);
   const cards = expanded
     ? round.matches
         .slice()
@@ -700,7 +712,7 @@ function renderRound(store, tournament, round, index, playersById, isCurrent) {
         ${
           expanded
             ? '<span class="round-toggle-hint">Свернуть</span>'
-            : `<span class="round-summary-line">${esc(summary)}</span>`
+            : summary
         }
       </button>`;
   return `
@@ -725,14 +737,13 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
   const showTennis = settings.scoringMode === 'games' && round.kind !== 'qualifying';
   const aLabel = `${playersById.get(match.teamA[0])?.name || match.teamA[0]} / ${playersById.get(match.teamA[1])?.name || match.teamA[1]}`;
   const bLabel = `${playersById.get(match.teamB[0])?.name || match.teamB[0]} / ${playersById.get(match.teamB[1])?.name || match.teamB[1]}`;
-  const typed = store.ui.typedScoreKeys || [];
   const aScores = games
     .map((g, gi) => {
       const label =
         n === 1
           ? ''
           : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : settings.gamesPerPairing) ? ' · решающий' : ''}`;
-      return `${label ? `<span class="score-label">${label}</span>` : ''}${scorePicker(roundIndex, match.court, gi, 'a', g.a, settings, round.kind, aLabel, typed)}`;
+      return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'a', g.a, aLabel)}`;
     })
     .join('');
   const bScores = games
@@ -741,7 +752,7 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
         n === 1
           ? ''
           : `Гейм ${gi + 1}${gi === n - 1 && n > (round.kind === 'qualifying' ? 1 : settings.gamesPerPairing) ? ' · решающий' : ''}`;
-      return `${label ? `<span class="score-label">${label}</span>` : ''}${scorePicker(roundIndex, match.court, gi, 'b', g.b, settings, round.kind, bLabel, typed)}`;
+      return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'b', g.b, bLabel)}`;
     })
     .join('');
   const boards = showTennis
@@ -769,41 +780,67 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
   `;
 }
 
-function scorePicker(roundIndex, court, gameIndex, side, value, settings, roundKind, teamLabelText, typedKeys) {
-  const shown = value == null || value === '' ? '' : String(value);
+function scoreBox(roundIndex, court, gameIndex, side, value, teamLabelText) {
+  const shown = value == null || value === '' ? '—' : String(value);
   const id = `score-r${roundIndex}-c${court}-g${gameIndex}-${side}`;
-  const typeMode = typedKeys.includes(id);
-  const max = scoreWheelMax(settings, roundKind);
   const aria = teamLabelText ? `Счёт, ${teamLabelText}` : 'Счёт';
+  return `<button type="button" class="score-box" data-action="open-score-picker"
+    data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
+    id="${id}" aria-label="${esc(aria)}">${esc(shown)}</button>`;
+}
+
+function renderScorePicker(store, tournament) {
+  const key = store.ui.scorePicker;
+  if (!key || !tournament) return '';
+  const roundIndex = Number(key.round);
+  const round = tournament.rounds[roundIndex];
+  if (!round) return '';
+  const settings = settingsForRound(round, tournament.settings);
+  const match = round.matches.find((m) => m.court === Number(key.court));
+  if (!match) return '';
+  ensureMatchGames(match, settings, round.kind);
+  const gi = Number(key.game);
+  const game = match.games[gi] || { a: null, b: null };
+  const side = key.side === 'b' ? 'b' : 'a';
+  const ids = side === 'a' ? match.teamA : match.teamB;
+  const otherIds = side === 'a' ? match.teamB : match.teamA;
+  const playersById = new Map(tournament.players.map((p) => [p.id, p]));
+  const name = (id) => playersById.get(id)?.name || id;
+  const title = `${name(ids[0])} / ${name(ids[1])}`;
+  const otherName = `${name(otherIds[0])} / ${name(otherIds[1])}`;
+  const value = game[side];
+  const other = game[side === 'a' ? 'b' : 'a'];
+  const shown = value == null || value === '' ? '' : String(value);
+  const otherShown = other == null || other === '' ? '–' : String(other);
+  const max = scoreWheelMax(settings, round.kind);
   const items = ['']
     .concat(Array.from({ length: max + 1 }, (_, n) => n))
     .map((n) => {
-      const key = n === '' ? '' : String(n);
-      const on = shown === key;
-      return `<button type="button" class="wheel-item${on ? ' is-on' : ''}" data-action="score-wheel" data-n="${esc(key)}"
-        data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
-        role="option" aria-selected="${on ? 'true' : 'false'}">${n === '' ? '—' : n}</button>`;
+      const k = n === '' ? '' : String(n);
+      const on = shown === k;
+      return `<div class="wheel-item${on ? ' is-on' : ''}" data-n="${esc(k)}" role="option" aria-selected="${on ? 'true' : 'false'}">${n === '' ? '—' : n}</div>`;
     })
     .join('');
+  const aria = `Счёт, ${title}`;
   return `
-    <div class="score-picker${typeMode ? ' is-type' : ''}">
-      <div class="wheel-wrap${typeMode ? ' is-hidden' : ''}">
-        <div class="wheel" data-wheel data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
-          data-value="${esc(shown)}" role="listbox" aria-label="${esc(aria)}" tabindex="0">
-          <div class="wheel-pad" aria-hidden="true"></div>
-          ${items}
-          <div class="wheel-pad" aria-hidden="true"></div>
+    <div class="picker-backdrop" data-picker-backdrop>
+      <div class="picker-sheet" data-picker-sheet role="dialog" aria-modal="true" aria-labelledby="picker-title">
+        <p id="picker-title" class="picker-title">${esc(title)}</p>
+        <p class="picker-other">${esc(otherName)} · <span id="picker-other-score">${esc(otherShown)}</span></p>
+        <div class="wheel-wrap">
+          <div class="wheel" data-wheel data-round="${roundIndex}" data-court="${match.court}" data-game="${gi}" data-side="${side}"
+            data-value="${esc(shown)}" role="listbox" aria-label="${esc(aria)}" tabindex="0">
+            <div class="wheel-pad" aria-hidden="true"></div>
+            ${items}
+            <div class="wheel-pad" aria-hidden="true"></div>
+          </div>
+          <div class="wheel-frame" aria-hidden="true"></div>
+          <input id="picker-score-input" class="input score picker-type is-hidden" inputmode="numeric" pattern="[0-9]*" type="text" maxlength="3"
+            data-action="score" data-round="${roundIndex}" data-court="${match.court}" data-game="${gi}" data-side="${side}"
+            value="${esc(shown)}" aria-label="${esc(aria)}" />
         </div>
-        <div class="wheel-frame" aria-hidden="true"></div>
+        <button type="button" class="btn btn-primary" data-action="confirm-score-picker" id="picker-ok">OK</button>
       </div>
-      <input class="input score${typeMode ? '' : ' is-visually-hidden'}" inputmode="numeric" pattern="[0-9]*" type="text" maxlength="3"
-        data-action="score"
-        data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="${side}"
-        id="${id}"
-        value="${esc(shown)}" aria-label="${esc(aria)}" ${typeMode ? '' : 'tabindex="-1"'} />
-      <button type="button" class="wheel-type-btn" data-action="score-type" data-id="${esc(id)}" data-mode="${typeMode ? 'type' : 'wheel'}">
-        ${typeMode ? 'Крутилка' : 'Клавиатура'}
-      </button>
     </div>`;
 }
 

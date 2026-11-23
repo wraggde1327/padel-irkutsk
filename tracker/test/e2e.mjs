@@ -63,17 +63,17 @@ function startServer() {
 }
 
 async function typeScore(page, locator, value) {
-  const id = await locator.getAttribute('id');
-  if (id) {
-    const typeBtn = page.locator(`[data-action="score-type"][data-id="${id}"]`);
-    if (await typeBtn.count()) {
-      const mode = await typeBtn.getAttribute('data-mode');
-      if (mode !== 'type') await typeBtn.click();
-    }
-  }
   await locator.click();
-  await locator.fill('');
-  await locator.type(String(value), { delay: 20 });
+  await page.waitForSelector('#picker-score-input', { state: 'attached' });
+  await page.evaluate((v) => {
+    const input = document.getElementById('picker-score-input');
+    if (!input) throw new Error('no picker input');
+    input.classList.remove('is-hidden');
+    input.value = String(v);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+  await page.click('#picker-ok');
+  await page.waitForSelector('.picker-sheet', { state: 'detached' });
   await page.waitForTimeout(220);
 }
 
@@ -287,6 +287,11 @@ async function main() {
   await page.click('[data-action="pick-format"][data-format="americano"]');
   await page.waitForSelector('#btn-create-ok');
   await page.fill('[data-action="draft-name"]', 'Американо утро');
+  assert.ok(await page.locator('[data-key="mexicanoPairing"][data-value="1-4"]').isVisible());
+  assert.ok(await page.locator('[data-key="mexicanoPairing"][data-value="1-3"]').isVisible());
+  assert.ok(await page.locator('text=1-4, 2-3').count());
+  assert.ok(await page.locator('text=Полный круг').count());
+  assert.equal(await page.locator('text=По циклу').count(), 0);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-create-settings.png'), fullPage: true });
   await page.click('#btn-create-ok');
   await page.waitForSelector('#add-name');
@@ -300,6 +305,24 @@ async function main() {
   assert.equal(activeOf(store).rounds[0].matches.length, 2);
   assert.equal(await page.locator('.match-duel').count(), 2);
   assert.ok((await page.locator('.match-side').count()) >= 4);
+  assert.equal(await page.locator('.match-duel .wheel').count(), 0);
+  assert.equal(await page.locator('header [data-action="open-settings"]').getAttribute('aria-label'), 'Настройки турнира');
+  assert.equal(await page.locator('.summary-edit').count(), 0);
+  assert.equal(await page.locator('text=Клавиатура').count(), 0);
+  await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '9');
+  await page.waitForFunction(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    const g = t?.rounds[0]?.matches[0]?.games?.[0];
+    return g && g.a === 9 && g.b === 15;
+  });
+  await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '10');
+  await page.waitForFunction(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    const g = t?.rounds[0]?.matches[0]?.games?.[0];
+    return g && g.a === 10 && g.b === 14;
+  });
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-match-layout.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-match-layout.png'), fullPage: true });
@@ -310,7 +333,8 @@ async function main() {
   await page.waitForFunction(() => document.querySelectorAll('.round').length === 2);
   assert.equal(await page.locator('.round.is-collapsed').count(), 1);
   assert.ok(await page.locator('.round.is-current .match-duel').count());
-  assert.match(await page.locator('.round.is-collapsed .round-summary-line').innerText(), /К1:/);
+  assert.match(await page.locator('.round.is-collapsed .round-summary-line').first().innerText(), /Корт 1:/);
+  assert.ok((await page.locator('.round.is-collapsed .round-summary-line').count()) >= 2);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-rounds-collapsed.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-rounds-collapsed.png'), fullPage: true });
@@ -344,6 +368,11 @@ async function main() {
 
   await page.click('[data-action="open-settings"]');
   await page.waitForSelector('[data-action="export-one"]');
+  for (const n of [15, 17, 19, 21]) {
+    assert.ok(await page.locator(`[data-action="preset"][data-n="${n}"]`).count(), `preset ${n}`);
+  }
+  assert.ok(await page.locator('[data-action="preset"][data-n="custom"]').count());
+  assert.equal(await page.locator('[data-action="preset"][data-n="11"]').count(), 0);
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-settings-formats.png'), fullPage: true });
 
   const downloads = [];
@@ -454,13 +483,7 @@ async function main() {
   });
   const opened = activeOf(await readState(page));
   const openIndex = opened.rounds.length - 1;
-  await page.evaluate((roundIndex) => {
-    const el = document.querySelector(`input.score[data-round="${roundIndex}"][data-side="a"]`);
-    if (!el) throw new Error('no score input');
-    el.value = '12';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }, openIndex);
-  await page.waitForTimeout(280);
+  await typeScore(page, page.locator(`.score-box[data-round="${openIndex}"][data-side="a"]`).first(), '12');
   await page.click('#btn-change-pairs');
   await page.waitForSelector('.callout');
   assert.match(await page.locator('#new-pairs .callout').innerText(), /уже есть счета/);
@@ -490,9 +513,17 @@ async function main() {
   await addPlayers(page, NAMES8);
   await page.click('[data-tab="play"]');
   await page.click('#btn-next-round');
-  await page.waitForSelector('.match-duel .wheel');
-  assert.ok(await page.locator('.wheel').count());
-  await page.locator('[data-action="score-wheel"][data-side="a"][data-n="4"]').first().evaluate((el) => el.click());
+  await page.waitForSelector('.match-duel .score-box');
+  assert.equal(await page.locator('.match-duel .wheel').count(), 0);
+  await page.locator('.score-box[data-side="a"]').first().click();
+  await page.waitForSelector('.picker-sheet .wheel', { state: 'attached' });
+  await page.evaluate(() => {
+    const input = document.getElementById('picker-score-input');
+    if (!input) throw new Error('no picker input');
+    input.classList.remove('is-hidden');
+    input.value = '4';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await page.waitForFunction(() => {
     const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
     const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
@@ -507,6 +538,8 @@ async function main() {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-360-score-wheel.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('#picker-ok');
+  await page.waitForSelector('.picker-sheet', { state: 'detached' });
   await fillCurrentRound(page, 6, 4);
 
   await page.click('[data-action="open-settings"]');

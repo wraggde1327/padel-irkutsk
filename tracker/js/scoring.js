@@ -1,6 +1,7 @@
 /** Счёт: автозаполнение, теннисное табло, сколько игр играть. */
 
 export const TENNIS_LABELS = ['0', '15', '30', '40'];
+export const POINTS_PRESETS = [15, 17, 19, 21];
 
 export function pointsTarget(settings, roundKind) {
   if (roundKind === 'qualifying') return settings.qualifyingPoints;
@@ -99,6 +100,29 @@ export function autoFillScore(entered, settings, roundKind) {
   const winByTwo =
     roundKind === 'qualifying' || usesTotalPoints(settings, roundKind) ? false : Boolean(settings.winByTwo);
   return autoFillOther(entered, pointsTarget(settings, roundKind), winByTwo);
+}
+
+/**
+ * Живой пересчёт второй стороны: любое изменение слева пересчитывает право
+ * и наоборот, даже если там уже есть значение. Если правило неоднозначно
+ * (решающий при N, «с разницей в 2»), другую сторону не трогаем.
+ */
+export function applyScoreWithSync(game, side, parsed, settings, roundKind, { fromUser = true } = {}) {
+  const otherSide = side === 'a' ? 'b' : 'a';
+  const next = {
+    ...game,
+    tennis: game.tennis || { ptsA: 0, ptsB: 0 },
+    touched: { a: false, b: false, ...(game.touched || {}) },
+  };
+  next[side] = parsed;
+  next.touched[side] = parsed != null;
+  if (fromUser) {
+    const other = autoFillScore(parsed, settings, roundKind);
+    if (other != null) {
+      next[otherSide] = other;
+    }
+  }
+  return next;
 }
 
 /** Валидный сет: победитель ровно N, проигравший ≤ N-1 (решающий) или ≤ N-2. */

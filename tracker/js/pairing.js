@@ -23,6 +23,7 @@ export {
   autoCourts,
   bestPairingOfFour,
   compactMatchLine,
+  compactSittingLine,
   expectedPlayerCount,
   formatMatchLine,
   genderCounts,

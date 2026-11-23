@@ -1,7 +1,7 @@
 import { generateRound, kingOfTheCourtGroups, genderCounts, autoCourts } from './pairing.js';
 import {
+  applyScoreWithSync,
   applyTennisPoint,
-  autoFillScore,
   emptyGame,
   freezeRoundScoring,
   isGameComplete,
@@ -10,7 +10,7 @@ import {
   scoringSnapshot,
   settingsForRound,
 } from './scoring.js';
-import { nearestWheelValue, scrollWheelTo, syncScoreWheels } from './wheel.js';
+import { isTapGesture, nearestWheelValue, scrollWheelTo, syncScoreWheels } from './wheel.js';
 import { computeStandings } from './standings.js';
 import {
   activeTournament,
@@ -30,6 +30,7 @@ import { buildExportPayload, downloadJson, exportFileName, parseImportJson } fro
 const root = document.getElementById('app');
 const fileInput = document.getElementById('import-file');
 let store = loadState();
+let pickerTyping = false;
 
 function persist() {
   saveState(store);
@@ -54,16 +55,25 @@ function toast(message) {
 function paint() {
   const active = document.activeElement;
   const id = active && active.id;
-  const scoreHidden =
-    active instanceof HTMLInputElement &&
-    active.dataset.action === 'score' &&
-    !(store.ui.typedScoreKeys || []).includes(id);
+  const keepType = pickerTyping && id === 'picker-score-input';
   const start = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   const end = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   renderApp(root, store);
   persist();
   bindScoreWheels();
-  if (id && !scoreHidden) {
+  if (keepType) {
+    startTyping();
+    const el = document.getElementById('picker-score-input');
+    if (el && start != null && typeof el.setSelectionRange === 'function') {
+      try {
+        el.setSelectionRange(start, end ?? start);
+      } catch {
+        /* not a text input */
+      }
+    }
+    return;
+  }
+  if (id && id !== 'picker-score-input') {
     const el = document.getElementById(id);
     if (el && typeof el.focus === 'function') {
       el.focus();
@@ -78,12 +88,85 @@ function paint() {
   }
 }
 
+function closeScorePicker() {
+  store.ui.scorePicker = null;
+  pickerTyping = false;
+}
+
+function startTyping() {
+  pickerTyping = true;
+  const input = document.getElementById('picker-score-input');
+  if (!(input instanceof HTMLInputElement)) return;
+  input.classList.remove('is-hidden');
+  input.focus();
+  input.select();
+}
+
 function bindScoreWheels() {
+  const open = Boolean(store.ui.scorePicker);
+  document.documentElement.classList.toggle('is-picker-open', open);
+  document.body.classList.toggle('is-picker-open', open);
   for (const el of root.querySelectorAll('[data-wheel]')) {
-    el.addEventListener('scroll', onWheelScroll);
-    el.addEventListener('scrollend', onWheelCommit);
+    bindPickerWheel(el);
+  }
+  const backdrop = root.querySelector('[data-picker-backdrop]');
+  if (backdrop) {
+    backdrop.addEventListener(
+      'touchmove',
+      (event) => {
+        if (!event.target.closest('[data-wheel]')) event.preventDefault();
+      },
+      { passive: false },
+    );
+  }
+  const input = document.getElementById('picker-score-input');
+  if (input instanceof HTMLInputElement) {
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      pickerTyping = false;
+      setScore(Number(input.dataset.round), input.dataset.court, input.dataset.game, input.dataset.side, input.value, true);
+    });
+    input.addEventListener('blur', () => {
+      if (!pickerTyping) return;
+      pickerTyping = false;
+      setScore(Number(input.dataset.round), input.dataset.court, input.dataset.game, input.dataset.side, input.value, true);
+    });
   }
   requestAnimationFrame(() => syncScoreWheels(root));
+}
+
+function bindPickerWheel(el) {
+  let start = null;
+  el.addEventListener('scroll', onWheelScroll);
+  el.addEventListener('scrollend', onWheelCommit);
+  el.addEventListener('pointerdown', (event) => {
+    if (el.dataset.syncing) return;
+    start = { x: event.clientX, y: event.clientY, t: Date.now(), scrollTop: el.scrollTop };
+  });
+  el.addEventListener('pointerup', (event) => {
+    if (!start) return;
+    const end = { x: event.clientX, y: event.clientY, t: Date.now(), scrollTop: el.scrollTop };
+    const tap = isTapGesture(start, end);
+    start = null;
+    if (!tap || el.dataset.syncing) return;
+    const item = event.target instanceof Element ? event.target.closest('.wheel-item') : null;
+    if (!item || !el.contains(item)) return;
+    event.preventDefault();
+    const tapped = item.dataset.n ?? '';
+    const selected = nearestWheelValue(el);
+    const selectedKey = selected == null ? '' : String(selected);
+    if (tapped === selectedKey) {
+      startTyping();
+      return;
+    }
+    el.dataset.value = tapped;
+    el.dataset.syncing = '1';
+    setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, tapped, true);
+  });
+  el.addEventListener('pointercancel', () => {
+    start = null;
+  });
 }
 
 function onWheelScroll(event) {
@@ -276,7 +359,27 @@ function applyNewPairs(method) {
 
 let scorePaintTimer = 0;
 
-function setScore(roundIndex, court, gameIndex, side, raw, fromUser) {
+function scoreBoxText(value) {
+  return value == null || value === '' ? '—' : String(value);
+}
+
+function writeLiveScore(roundIndex, court, gameIndex, side, value) {
+  const box = document.getElementById(`score-r${roundIndex}-c${court}-g${gameIndex}-${side}`);
+  if (box) box.textContent = scoreBoxText(value);
+  const picker = store.ui.scorePicker;
+  if (
+    picker &&
+    Number(picker.round) === Number(roundIndex) &&
+    Number(picker.court) === Number(court) &&
+    Number(picker.game) === Number(gameIndex) &&
+    picker.side !== side
+  ) {
+    const hint = document.getElementById('picker-other-score');
+    if (hint) hint.textContent = value == null || value === '' ? '–' : String(value);
+  }
+}
+
+function setScore(roundIndex, court, gameIndex, side, raw, fromUser, opts = {}) {
   const t = tournament();
   if (!t) return;
   const round = t.rounds[roundIndex];
@@ -288,24 +391,14 @@ function setScore(roundIndex, court, gameIndex, side, raw, fromUser) {
   ensureMatchGames(match, settings, round.kind);
   const game = match.games[Number(gameIndex)] || emptyGame();
   const parsed = raw === '' || raw == null ? null : Number.isFinite(Number(raw)) ? Number(raw) : null;
-  game.touched = game.touched || { a: false, b: false };
-  game.touched[side] = parsed != null;
-  game[side] = parsed;
-  let filledOther = null;
-  if (fromUser) {
-    const otherSide = side === 'a' ? 'b' : 'a';
-    const other = autoFillScore(parsed, settings, round.kind);
-    if (other != null && !game.touched[otherSide]) {
-      game[otherSide] = other;
-      filledOther = { otherSide, other };
-    }
-  }
-  match.games[Number(gameIndex)] = game;
+  const otherSide = side === 'a' ? 'b' : 'a';
+  const next = applyScoreWithSync(game, side, parsed, settings, round.kind, { fromUser });
+  const filledOther = fromUser && next[otherSide] !== game[otherSide] ? { otherSide, other: next[otherSide] } : null;
+  match.games[Number(gameIndex)] = next;
   ensureMatchGames(match, settings, round.kind);
   touchTournament(t);
   persist();
-  const selfEl = document.getElementById(`score-r${roundIndex}-c${court}-g${gameIndex}-${side}`);
-  if (selfEl instanceof HTMLInputElement) selfEl.value = parsed == null ? '' : String(parsed);
+  writeLiveScore(roundIndex, court, gameIndex, side, parsed);
   const selfWheel = root.querySelector(
     `[data-wheel][data-round="${roundIndex}"][data-court="${court}"][data-game="${gameIndex}"][data-side="${side}"]`,
   );
@@ -315,18 +408,7 @@ function setScore(roundIndex, court, gameIndex, side, raw, fromUser) {
     scrollWheelTo(selfWheel, parsed, true);
   }
   if (filledOther) {
-    const otherEl = document.getElementById(
-      `score-r${roundIndex}-c${court}-g${gameIndex}-${filledOther.otherSide}`,
-    );
-    if (otherEl instanceof HTMLInputElement) otherEl.value = String(filledOther.other);
-    const otherWheel = root.querySelector(
-      `[data-wheel][data-round="${roundIndex}"][data-court="${court}"][data-game="${gameIndex}"][data-side="${filledOther.otherSide}"]`,
-    );
-    if (otherWheel instanceof HTMLElement) {
-      otherWheel.dataset.value = String(filledOther.other);
-      otherWheel.dataset.syncing = '1';
-      scrollWheelTo(otherWheel, filledOther.other, true);
-    }
+    writeLiveScore(roundIndex, court, gameIndex, filledOther.otherSide, filledOther.other);
   }
   const afterSlots = neededGames(settings, round.kind, match.games);
   maybeOfferRebuild(roundIndex);
@@ -335,6 +417,7 @@ function setScore(roundIndex, court, gameIndex, side, raw, fromUser) {
     paint();
     return;
   }
+  if (opts.skipPaint) return;
   scorePaintTimer = window.setTimeout(() => paint(), 180);
 }
 
@@ -409,6 +492,7 @@ function goHome() {
   store.ui.newPairsOpen = false;
   store.ui.rebuildOffer = null;
   store.ui.renameId = null;
+  closeScorePicker();
   location.hash = '';
   paint();
 }
@@ -519,6 +603,19 @@ function confirmImport(mode) {
 }
 
 function onClick(event) {
+  if (event.target.closest('[data-picker-sheet]')) {
+    const inside = event.target.closest('[data-action]');
+    if (inside?.dataset.action === 'confirm-score-picker') {
+      closeScorePicker();
+      paint();
+    }
+    return;
+  }
+  if (event.target.closest('[data-picker-backdrop]')) {
+    closeScorePicker();
+    paint();
+    return;
+  }
   const btn = event.target.closest('[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
@@ -526,6 +623,7 @@ function onClick(event) {
   if (action === 'tab') {
     store.ui.tab = btn.dataset.tab;
     location.hash = btn.dataset.tab;
+    closeScorePicker();
     paint();
     return;
   }
@@ -609,6 +707,7 @@ function onClick(event) {
   if (action === 'open-settings') {
     store.ui.tab = 'settings';
     location.hash = 'settings';
+    closeScorePicker();
     paint();
     return;
   }
@@ -645,24 +744,20 @@ function onClick(event) {
     paint();
     return;
   }
-  if (action === 'score-wheel') {
-    const raw = btn.dataset.n ?? '';
-    const wheel = btn.closest('[data-wheel]');
-    if (wheel instanceof HTMLElement) {
-      wheel.dataset.value = raw;
-      wheel.dataset.syncing = '1';
-    }
-    setScore(Number(btn.dataset.round), btn.dataset.court, btn.dataset.game, btn.dataset.side, raw, true);
+  if (action === 'open-score-picker') {
+    pickerTyping = false;
+    store.ui.scorePicker = {
+      round: Number(btn.dataset.round),
+      court: Number(btn.dataset.court),
+      game: Number(btn.dataset.game),
+      side: btn.dataset.side,
+    };
+    paint();
     return;
   }
-  if (action === 'score-type') {
-    const id = btn.dataset.id;
-    const list = store.ui.typedScoreKeys || [];
-    store.ui.typedScoreKeys = list.includes(id) ? list.filter((x) => x !== id) : list.concat(id);
+  if (action === 'confirm-score-picker') {
+    closeScorePicker();
     paint();
-    if ((store.ui.typedScoreKeys || []).includes(id)) {
-      document.getElementById(id)?.focus();
-    }
     return;
   }
   if (action === 'draft-toggle-bool' && store.ui.draft) {
@@ -838,7 +933,9 @@ function onInput(event) {
   const el = event.target;
   if (!(el instanceof HTMLInputElement)) return;
   if (el.dataset.action === 'score') {
-    setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, el.value, true);
+    setScore(Number(el.dataset.round), el.dataset.court, el.dataset.game, el.dataset.side, el.value, true, {
+      skipPaint: pickerTyping,
+    });
   }
 }
 
@@ -884,6 +981,13 @@ if (fileInput) fileInput.addEventListener('change', onImportFile);
 window.addEventListener('hashchange', () => {
   applyHash();
   paint();
+});
+
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && store.ui.scorePicker) {
+    closeScorePicker();
+    paint();
+  }
 });
 
 applyHash();

@@ -142,7 +142,7 @@ test('americano mixed 8: all pairs M+F', () => {
   }
 });
 
-test('mexicano groups top 4 on court 1 with 1+4 vs 2+3', () => {
+test('mexicano groups top 4 on court 1 with 1-4, 2-3', () => {
   const players = nPlayers(8);
   const standings = players.map((p, i) => ({
     id: p.id,
@@ -165,7 +165,7 @@ test('mexicano groups top 4 on court 1 with 1+4 vs 2+3', () => {
   assert.deepEqual(partners, ['p1:p4', 'p2:p3'].sort());
 });
 
-test('mexicano 1+3 vs 2+4', () => {
+test('mexicano 1-3, 2-4', () => {
   const players = nPlayers(8);
   const standings = players.map((p, i) => ({
     id: p.id,
@@ -369,7 +369,8 @@ test('migrate free keeps saved players', () => {
   const loaded = loadState(storage);
   assert.equal(loaded.tournaments[0].players.length, 8);
   assert.equal(loaded.tournaments[0].settings.tournamentFormat, 'free');
-  assert.equal(loaded.tournaments[0].settings.pointsPreset, 11);
+  assert.equal(loaded.tournaments[0].settings.pointsPreset, 'custom');
+  assert.equal(loaded.tournaments[0].settings.customPoints, 11);
 });
 
 test('generateRound 9 players: 2 courts and one bye', () => {
