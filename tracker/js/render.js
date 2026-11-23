@@ -7,7 +7,6 @@ import {
   POINTS_PRESETS,
   scoreWheelMax,
   settingsForRound,
-  tennisLabel,
 } from './scoring.js';
 import { computeStandings, sortStandings, standingMarks } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
@@ -772,7 +771,6 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
   const n = neededGames(settings, round.kind, match.games);
   const games = match.games.slice(0, n);
   const sum = gamesSum(games.filter(isGameComplete));
-  const showTennis = settings.scoringMode === 'games' && round.kind !== 'qualifying';
   const aLabel = `${playersById.get(match.teamA[0])?.name || match.teamA[0]} / ${playersById.get(match.teamA[1])?.name || match.teamA[1]}`;
   const bLabel = `${playersById.get(match.teamB[0])?.name || match.teamB[0]} / ${playersById.get(match.teamB[1])?.name || match.teamB[1]}`;
   const aScores = games
@@ -793,10 +791,6 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
       return `${label ? `<span class="score-label">${label}</span>` : ''}${scoreBox(roundIndex, match.court, gi, 'b', g.b, bLabel, isFinished(tournament))}`;
     })
     .join('');
-  const boards =
-    showTennis && !isFinished(tournament)
-      ? games.map((g, gi) => renderScoreboard(store, roundIndex, match.court, gi, g)).join('')
-      : '';
   return `
     <div class="match">
       <div class="match-head">
@@ -814,7 +808,6 @@ function renderMatch(store, tournament, round, roundIndex, match, playersById, e
           ${bScores}
         </div>
       </div>
-      ${boards}
     </div>
   `;
 }
@@ -883,33 +876,6 @@ function renderScorePicker(store, tournament) {
         <button type="button" class="btn btn-primary" data-action="confirm-score-picker" id="picker-ok">OK</button>
       </div>
     </div>`;
-}
-
-function renderScoreboard(store, roundIndex, court, gameIndex, game) {
-  const tennis = game.tennis || { ptsA: 0, ptsB: 0 };
-  const labels = tennisLabel(tennis.ptsA, tennis.ptsB);
-  const open =
-    store.ui.scoreboard &&
-    store.ui.scoreboard.round === roundIndex &&
-    store.ui.scoreboard.court === court &&
-    store.ui.scoreboard.game === gameIndex;
-  return `
-    <button type="button" class="linkish" data-action="toggle-board" data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}">
-      ${open ? 'Скрыть табло' : 'Табло по очкам'}
-    </button>
-    ${
-      open
-        ? `<div class="board">
-            <p class="hint">${labels.golden ? 'Золотое очко' : '15–30–40, при 40–40 — золотое'}</p>
-            <div class="board-row">
-              <button type="button" class="btn btn-ghost" data-action="tennis-point" data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="a">Очко слева</button>
-              <strong>${labels.a} : ${labels.b}</strong>
-              <button type="button" class="btn btn-ghost" data-action="tennis-point" data-round="${roundIndex}" data-court="${court}" data-game="${gameIndex}" data-side="b">Очко справа</button>
-            </div>
-          </div>`
-        : ''
-    }
-  `;
 }
 
 function renderTable(store, tournament) {
