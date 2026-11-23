@@ -39,6 +39,15 @@ async function assertSumChips(page, action) {
   }
 }
 
+async function fileCardBodyOpen(page) {
+  return page.evaluate(() => {
+    const card = document.querySelector('#file-card');
+    const body = document.querySelector('#file-card-body');
+    if (!card || !body) return false;
+    return card.classList.contains('is-open') && body.getBoundingClientRect().height > 40;
+  });
+}
+
 async function importPlaywright() {
   try {
     return await import('playwright');
@@ -397,7 +406,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.13');
+  assert.equal(sw.version, '0.7.14');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -797,6 +806,47 @@ async function main() {
   await page.click('[data-action="open-settings"]');
   assert.equal(await page.locator('#btn-finish').count(), 0);
   assert.equal(await page.locator('[data-key="roundsLimit"]').count(), 0);
+  await page.waitForSelector('[data-action="toggle-file-card"]');
+  assert.equal(await page.locator('[data-action="toggle-file-card"]').getAttribute('aria-expanded'), 'false');
+  assert.equal(await fileCardBodyOpen(page), false);
+  await page.locator('#file-card').scrollIntoViewIfNeeded();
+  await page.locator('#file-card').screenshot({ path: join(screenshotDir, 'mobile-390-settings-file-collapsed.png') });
+  const fileScrollBefore = await page.evaluate(() => (document.scrollingElement || document.documentElement).scrollTop);
+  await page.click('[data-action="toggle-file-card"]');
+  await page.waitForFunction(() => {
+    const card = document.querySelector('#file-card');
+    const body = document.querySelector('#file-card-body');
+    return Boolean(card?.classList.contains('is-open') && body && body.getBoundingClientRect().height > 40);
+  });
+  assert.equal(await page.locator('[data-action="toggle-file-card"]').getAttribute('aria-expanded'), 'true');
+  assert.equal(await fileCardBodyOpen(page), true);
+  const fileScrollAfter = await page.evaluate(() => (document.scrollingElement || document.documentElement).scrollTop);
+  assert.ok(Math.abs(fileScrollAfter - fileScrollBefore) < 8, `file card scroll jumped ${fileScrollBefore} -> ${fileScrollAfter}`);
+  await page.waitForTimeout(240);
+  await page.evaluate(() => {
+    const tabs = document.querySelector('.tabs');
+    const main = document.getElementById('main');
+    const card = document.querySelector('#file-card');
+    const scroller = document.scrollingElement || document.documentElement;
+    if (tabs) tabs.style.display = 'none';
+    if (main) main.style.paddingBottom = '24px';
+    if (card && scroller) {
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top + scroller.scrollTop - 16);
+    }
+  });
+  await page.locator('#file-card').screenshot({ path: join(screenshotDir, 'mobile-390-settings-file-expanded.png') });
+  await page.evaluate(() => {
+    const tabs = document.querySelector('.tabs');
+    const main = document.getElementById('main');
+    if (tabs) tabs.style.display = '';
+    if (main) main.style.paddingBottom = '';
+  });
+  await page.click('[data-action="toggle-file-card"]');
+  await page.waitForFunction(() => !document.querySelector('#file-card')?.classList.contains('is-open'));
+  assert.equal(await fileCardBodyOpen(page), false);
+  await page.evaluate(() => {
+    (document.scrollingElement || document.documentElement).scrollTop = 0;
+  });
   await page.waitForSelector('[data-key="scoringMode"]');
   await assertSumChips(page, 'total-pts');
   assert.ok(await page.locator('[data-action="total-pts"][data-n="21"].is-on').count());
@@ -887,7 +937,13 @@ async function main() {
   assert.equal(activeOf(store).players.length, 9);
 
   await page.click('[data-action="open-settings"]');
-  await page.waitForSelector('[data-action="export-one"]');
+  await page.waitForSelector('[data-action="toggle-file-card"]');
+  assert.equal(await fileCardBodyOpen(page), false);
+  await page.click('[data-action="toggle-file-card"]');
+  await page.waitForFunction(() => {
+    const body = document.querySelector('#file-card-body');
+    return Boolean(body && body.getBoundingClientRect().height > 40);
+  });
   for (const n of [15, 17, 19, 21]) {
     assert.ok(await page.locator(`[data-action="preset"][data-n="${n}"]`).count(), `preset ${n}`);
   }

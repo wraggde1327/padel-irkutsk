@@ -774,9 +774,23 @@ function onClick(event) {
   }
   if (action === 'open-settings') {
     store.ui.tab = 'settings';
+    store.ui.fileCardOpen = false;
     setHash('settings');
     closeScorePicker();
     paint();
+    return;
+  }
+  if (action === 'toggle-file-card') {
+    store.ui.fileCardOpen = !store.ui.fileCardOpen;
+    persist();
+    const card = root.querySelector('#file-card');
+    const toggle = card?.querySelector('.file-card-toggle');
+    if (card && toggle) {
+      card.classList.toggle('is-open', store.ui.fileCardOpen);
+      toggle.setAttribute('aria-expanded', store.ui.fileCardOpen ? 'true' : 'false');
+    } else {
+      paint();
+    }
     return;
   }
   if (action === 'finish-tournament' && t && !isFinished(t)) {

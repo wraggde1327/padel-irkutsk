@@ -62,6 +62,7 @@ export function emptyUi() {
     confirmDeleteId: null,
     renameId: null,
     expandedRoundIds: [],
+    fileCardOpen: false,
     scorePicker: null,
   };
 }
@@ -192,6 +193,7 @@ export function migrate(raw) {
       ui.screen = ui.activeId ? 'tournament' : 'home';
     }
     if (!['players', 'play', 'table', 'settings'].includes(ui.tab)) ui.tab = 'players';
+    ui.fileCardOpen = ui.fileCardOpen === true;
     if (ui.screen === 'tournament' && !tournaments.some((t) => t.id === ui.activeId)) {
       ui.screen = 'home';
       ui.activeId = null;
@@ -245,6 +247,7 @@ export function saveState(state, storage = globalThis.localStorage) {
     copy.ui.importAsk = null;
     copy.ui.backupOpen = false;
     copy.ui.expandedRoundIds = [];
+    copy.ui.fileCardOpen = false;
     copy.ui.scorePicker = null;
   }
   storage?.setItem(STORAGE_KEY, JSON.stringify(copy));
