@@ -35,6 +35,30 @@ let store = loadState();
 let pickerTyping = false;
 let scrollAfterPaint = null;
 let lastPaintKey = '';
+let chromeObserver = null;
+
+function syncChromeInsets() {
+  if (!root) return;
+  const header = root.querySelector('.top');
+  const tabs = root.querySelector('.tabs');
+  const topH = header ? Math.round(header.getBoundingClientRect().height) : 0;
+  const botH = tabs ? Math.round(tabs.getBoundingClientRect().height) : 0;
+  root.style.setProperty('--chrome-top', `${topH}px`);
+  root.style.setProperty('--chrome-bottom', `${botH}px`);
+}
+
+function watchChromeInsets() {
+  syncChromeInsets();
+  if (typeof ResizeObserver === 'undefined') return;
+  if (!chromeObserver) {
+    chromeObserver = new ResizeObserver(() => syncChromeInsets());
+  }
+  chromeObserver.disconnect();
+  const header = root.querySelector('.top');
+  const tabs = root.querySelector('.tabs');
+  if (header) chromeObserver.observe(header);
+  if (tabs) chromeObserver.observe(tabs);
+}
 
 function paintContextKey() {
   return `${store.ui.screen || ''}|${store.ui.activeId || ''}|${store.ui.tab || ''}`;
@@ -92,6 +116,7 @@ function paint() {
   const start = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   const end = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   renderApp(root, store);
+  watchChromeInsets();
   persist();
   bindScoreWheels();
   lastPaintKey = paintKey;
@@ -1046,6 +1071,11 @@ window.addEventListener('keydown', (event) => {
     paint();
   }
 });
+
+window.addEventListener('resize', syncChromeInsets);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncChromeInsets);
+}
 
 applyHash();
 paint();
