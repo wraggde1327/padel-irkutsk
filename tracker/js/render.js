@@ -607,7 +607,16 @@ function renderPlay(store, tournament) {
       `<button type="button" class="btn btn-primary" id="btn-next-round" data-action="gen-round" data-kind="regular">${nextLabel}</button>`,
     );
   }
-  const hidePairs = mustQual || (last && last.kind === 'qualifying' && !lastDone);
+  const roundHasEnteredScores = Boolean(
+    last &&
+      last.matches.some((m) =>
+        (m.games || []).some((g) => g && ((g.a != null && g.a !== '') || (g.b != null && g.b !== ''))),
+      ),
+  );
+  const hidePairs =
+    mustQual ||
+    (last && last.kind === 'qualifying' && !lastDone) ||
+    (last && !lastDone && roundHasEnteredScores);
   const pairBtn =
     !finished && format === 'free' && !hidePairs
       ? `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`

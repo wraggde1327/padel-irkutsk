@@ -1,4 +1,4 @@
-import { generateRound, kingOfTheCourtGroups, genderCounts, autoCourts } from './pairing.js';
+import { generateRound, kingOfTheCourtGroups, genderCounts, autoCourts, partnerKey } from './pairing.js';
 import {
   applyScoreWithSync,
   emptyGame,
@@ -305,7 +305,15 @@ function resolveUnfinished({ discard, replaceEmpty }) {
   last.closedEarly = true;
 }
 
-function generate(kind, method = null) {
+function partnerKeysOf(round) {
+  if (!round?.matches) return [];
+  return round.matches.flatMap((m) => [
+    partnerKey(m.teamA[0], m.teamA[1]),
+    partnerKey(m.teamB[0], m.teamB[1]),
+  ]);
+}
+
+function generate(kind, method = null, avoidKeys = null) {
   const t = tournament();
   if (!t || isFinished(t)) return;
   if (kind !== 'qualifying' && mustStartWithQualifying(t.settings, t.rounds)) {
@@ -341,6 +349,7 @@ function generate(kind, method = null) {
       courtGroups,
       method,
       fixedPairs: t.fixedPairs,
+      avoidKeys,
     });
     const round = {
       id: `r${t.nextRoundNum}`,
@@ -376,15 +385,19 @@ function generate(kind, method = null) {
 }
 
 function applyNewPairs(method) {
+  const t = tournament();
+  if (t && method) t.settings.pairMethod = method;
   const last = lastRound();
   const complete = roundIsComplete(last);
   const hasScores = roundHasScores(last);
+  let avoidKeys = [];
   if (last && !complete && hasScores) {
     resolveUnfinished({ discard: store.ui.discardUnfinished, replaceEmpty: false });
   } else if (last && !complete && !hasScores) {
+    avoidKeys = partnerKeysOf(last);
     tournament()?.rounds.pop();
   }
-  generate('regular', method);
+  generate('regular', method, avoidKeys);
 }
 
 let scorePaintTimer = 0;
