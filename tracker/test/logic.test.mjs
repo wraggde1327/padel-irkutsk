@@ -23,11 +23,14 @@ import {
   matchComplete,
   neededGames,
   scoringSnapshot,
+  scoreTotalDeciding,
+  scoreTotalLimit,
   scoreWheelMax,
   settingsForRound,
   tennisLabel,
   POINTS_PRESETS,
   usesGamesTotal,
+  usesScoreTotal,
 } from '../js/scoring.js';
 import { computeStandings, sortStandings, standingMarks, standingPlace } from '../js/standings.js';
 import { scoringSummary } from '../js/render.js';
@@ -738,6 +741,8 @@ test('pair-escalera defaults to 4 games that sum to the limit', () => {
   assert.equal(s.decidingGame, false);
   assert.equal(s.setScore, true);
   assert.equal(usesGamesTotal(s, 'regular'), true);
+  assert.equal(usesScoreTotal(s, 'regular'), true);
+  assert.equal(s.totalPoints, 21);
   assert.deepEqual(GAMES_TOTAL_PRESETS, [4, 6, 8, 10, 12]);
   assert.equal(scoringSummary(s), '4 гейма');
   s.decidingGame = true;
@@ -747,6 +752,7 @@ test('pair-escalera defaults to 4 games that sum to the limit', () => {
   const lunda = defaultSettingsFor('americano');
   assert.equal(lunda.scoringMode, 'total');
   assert.equal(usesGamesTotal(lunda, 'regular'), false);
+  assert.equal(usesScoreTotal(lunda, 'regular'), false);
 });
 
 test('pair-escalera games total: auto-fill sums to N, decider is half+1', () => {
@@ -838,4 +844,60 @@ test('old pair-escalera total-points saves still load as Lunda', () => {
   const snap = scoringSnapshot(legacy);
   assert.equal(snap.scoringMode, 'total');
   assert.equal(snap.gamesTotal, false);
+});
+
+test('pair-escalera points total: 15/17/19/21/custom, odd limits ignore deciding', () => {
+  const n21 = {
+    tournamentFormat: 'pair-escalera',
+    scoringMode: 'points',
+    gamesTotal: true,
+    totalPoints: 21,
+    decidingGame: true,
+  };
+  const n16 = { ...n21, totalPoints: 'custom', customTotal: 16 };
+  assert.equal(usesScoreTotal(n21, 'regular'), true);
+  assert.equal(usesGamesTotal(n21, 'regular'), false);
+  assert.equal(scoreTotalLimit(n21), 21);
+  assert.equal(scoreTotalDeciding(n21), false);
+  assert.equal(scoreTotalDeciding(n16), true);
+  assert.equal(autoFillScore(15, n21, 'regular'), 6);
+  assert.equal(autoFillScore(21, n21, 'regular'), 0);
+  assert.equal(autoFillScore(9, n16, 'regular'), 8);
+  assert.equal(autoFillScore(8, n16, 'regular'), 8);
+  assert.equal(isValidGamesTotalScore(21, 0, n21), true);
+  assert.equal(isValidGamesTotalScore(11, 10, n21), true);
+  assert.equal(isValidGamesTotalScore(11, 11, n21), false);
+  assert.equal(isValidGamesTotalScore(8, 8, n16), false);
+  assert.equal(isValidGamesTotalScore(9, 8, n16), true);
+  assert.equal(isValidGamesTotalScore(16, 0, n16), true);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 15, b: 6 }] }, n21, 'regular'), true);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 8, b: 8 }] }, n16, 'regular'), false);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 9, b: 8 }] }, n16, 'regular'), true);
+  assert.equal(scoreWheelMax(n21, 'regular'), 21);
+  assert.equal(scoringSummary(n21), '21 очко');
+  assert.equal(scoringSummary(n16), '16 очков + решающее');
+});
+
+test('pair-escalera points standings count points scored', () => {
+  const players = players8().slice(0, 4);
+  const settings = {
+    tournamentFormat: 'pair-escalera',
+    scoringMode: 'points',
+    gamesTotal: true,
+    totalPoints: 21,
+    decidingGame: false,
+  };
+  const rounds = [
+    {
+      kind: 'regular',
+      scoring: { scoringMode: 'points', gamesTotal: true, totalPoints: 21 },
+      matches: [{ court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], games: [{ a: 15, b: 6 }] }],
+    },
+  ];
+  const rows = computeStandings(players, rounds, settings);
+  const anna = rows.find((r) => r.id === 'p1');
+  assert.equal(anna.wins, 1);
+  assert.equal(anna.pointsFor, 15);
+  assert.equal(anna.pointsAgainst, 6);
+  assert.equal(anna.delta, 9);
 });

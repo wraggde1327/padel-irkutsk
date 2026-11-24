@@ -6,9 +6,12 @@ import {
   matchComplete,
   neededGames,
   POINTS_PRESETS,
+  scoreTotalDeciding,
+  scoreTotalLimit,
   scoreWheelMax,
   settingsForRound,
   usesGamesTotal,
+  usesScoreTotal,
 } from './scoring.js';
 import { computeStandings, sortStandings, standingMarks, standingPlace } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
@@ -50,6 +53,15 @@ function ruGeyms(n) {
   return 'геймов';
 }
 
+function ruOcki(n) {
+  const m = Math.abs(Number(n)) % 100;
+  const d = m % 10;
+  if (m > 10 && m < 20) return 'очков';
+  if (d === 1) return 'очко';
+  if (d >= 2 && d <= 4) return 'очка';
+  return 'очков';
+}
+
 function ruCourts(n) {
   const v = Number(n);
   if (v === 1) return '1 корт';
@@ -67,9 +79,11 @@ export function canPlayMixed(players) {
 }
 
 export function scoringSummary(s) {
-  if (usesGamesTotal(s)) {
-    const n = gamesToWin(s);
-    return `${n} ${ruGeyms(n)}${s.decidingGame ? ' + решающий' : ''}`;
+  if (usesScoreTotal(s)) {
+    const n = scoreTotalLimit(s);
+    const extra = scoreTotalDeciding(s) ? (s.scoringMode === 'points' ? ' + решающее' : ' + решающий') : '';
+    if (s.scoringMode === 'points') return `${n} ${ruOcki(n)}${extra}`;
+    return `${n} ${ruGeyms(n)}${extra}`;
   }
   if (s.scoringMode === 'games') {
     const n = gamesToWin(s);
@@ -343,7 +357,7 @@ function renderFormatSettings(s, { draft = false, players = [], hideQualifying =
       ${renderMixed(s, action, okMixed, players)}
       <p class="hint">Ровно 8 игроков, 2 корта. Три круга — каждая пара играет с каждой, затем новые пары по таблице.</p>
       <h3>Счёт матча</h3>
-      ${renderPairEscaleraGamesFields(s, { draft })}`;
+      ${renderPairEscaleraScoringFields(s, { draft })}`;
   }
   if (format === 'free') {
     return `
@@ -494,29 +508,58 @@ function renderPointsFields(s, { draft = false } = {}) {
     </label>`;
 }
 
-function renderPairEscaleraGamesFields(s, { draft = false } = {}) {
+function renderPairEscaleraScoringFields(s, { draft = false } = {}) {
   const action = draft ? 'draft-setting-val' : 'setting-val';
   const toggle = draft ? 'draft-toggle' : 'toggle';
   const gamesOn = s.scoringMode === 'games';
-  const n = gamesOn ? gamesToWin(s) : 4;
+  const pointsOn = s.scoringMode === 'points';
+  const n = gamesOn || pointsOn ? scoreTotalLimit(s) : 4;
+  const even = n % 2 === 0;
   const half = n / 2;
-  return `
-    <p class="field-label">Геймов в матче</p>
-    <div class="seg wrap">
-      ${GAMES_TOTAL_PRESETS.map(
+  const modeOn = gamesOn || pointsOn;
+  const decidingOn = Boolean(s.decidingGame) && modeOn && even;
+  const unit = pointsOn ? 'очко' : 'гейм';
+  const chips = pointsOn
+    ? `${POINTS_PRESETS.map(
         (v) =>
-          `<button type="button" class="seg-btn ${gamesOn && n === v ? 'is-on' : ''}" data-action="${action}" data-key="gamesToWin" data-value="${v}">${v}</button>`,
+          `<button type="button" class="seg-btn ${Number(s.totalPoints) === v ? 'is-on' : ''}" data-action="${action}" data-key="totalPoints" data-value="${v}">${v}</button>`,
       ).join('')}
+      <button type="button" class="seg-btn ${s.totalPoints === 'custom' ? 'is-on' : ''}" data-action="${action}" data-key="totalPoints" data-value="custom">Своё</button>`
+    : GAMES_TOTAL_PRESETS.map(
+        (v) =>
+          `<button type="button" class="seg-btn ${gamesOn && gamesToWin(s) === v ? 'is-on' : ''}" data-action="${action}" data-key="gamesToWin" data-value="${v}">${v}</button>`,
+      ).join('');
+  const customField =
+    pointsOn && s.totalPoints === 'custom'
+      ? `<label class="field">Своё N
+            <input class="input" type="number" min="1" max="99" data-action="${draft ? 'draft-setting' : 'setting'}" data-key="customTotal" value="${esc(s.customTotal)}" />
+          </label>`
+      : '';
+  let hint;
+  if (!modeOn) {
+    hint = 'Выберите геймы или очки.';
+  } else if (!even) {
+    hint = `Счёт в сумме ${n}. При нечётном лимите ничья невозможна.`;
+  } else if (decidingOn) {
+    hint = `Счёт в сумме ${n}. При ${half}:${half} играется ещё ${unit === 'очко' ? 'одно очко' : 'один гейм'}, итог ${half + 1}:${half}.`;
+  } else {
+    hint = `Счёт в сумме ${n}. При ${half}:${half} — ничья.`;
+  }
+  return `
+    <div class="seg wrap">
+      <button type="button" class="seg-btn ${gamesOn ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="games">Геймы</button>
+      <button type="button" class="seg-btn ${pointsOn ? 'is-on' : ''}" data-action="${action}" data-key="scoringMode" data-value="points">Очки</button>
     </div>
+    <p class="field-label">${pointsOn ? 'Очков в матче' : 'Геймов в матче'}</p>
+    <div class="seg wrap">
+      ${chips}
+    </div>
+    ${customField}
     <label class="toggle">
-      <input type="checkbox" data-action="${toggle}" data-key="decidingGame" ${s.decidingGame && gamesOn ? 'checked' : ''} />
-      <span>Плюс один гейм при равенстве</span>
+      <input type="checkbox" data-action="${toggle}" data-key="decidingGame" ${s.decidingGame && modeOn ? 'checked' : ''} ${!even && modeOn ? 'disabled' : ''} />
+      <span>${pointsOn ? 'Плюс одно очко при равенстве' : 'Плюс один гейм при равенстве'}</span>
     </label>
-    <p class="hint">${
-      s.decidingGame && gamesOn
-        ? `Счёт в сумме ${n}. При ${half}:${half} играется ещё один гейм, итог ${half + 1}:${half}.`
-        : `Счёт в сумме ${n}. При ${half}:${half} — ничья.`
-    }</p>`;
+    <p class="hint">${hint}</p>`;
 }
 
 function renderGamesFields(s, { draft = false } = {}) {
@@ -947,6 +990,7 @@ function renderScorePicker(store, tournament) {
 }
 
 function renderTable(store, tournament) {
+  const scoreNoun = usesGamesTotal(tournament.settings) ? 'Геймы' : 'Очки';
   const primary = tournament.settings.standingsSort === 'wins' ? 'wins' : 'points';
   const sort = store.ui.sort || primary;
   const rows = sortStandings(
@@ -999,7 +1043,7 @@ function renderTable(store, tournament) {
         <h2>${finished ? 'Итог' : 'Таблица'}</h2>
         ${finished ? '<p class="hint">Турнир завершён. Можно открыть снова в настройках.</p>' : ''}
         <div class="seg sort-seg" role="group" aria-label="Сортировка">
-          <button type="button" class="seg-btn ${sort === 'points' ? 'is-on' : ''}" data-action="sort" data-sort="points">Очки</button>
+          <button type="button" class="seg-btn ${sort === 'points' ? 'is-on' : ''}" data-action="sort" data-sort="points">${scoreNoun}</button>
           <button type="button" class="seg-btn ${sort === 'wins' ? 'is-on' : ''}" data-action="sort" data-sort="wins">Победы</button>
           <button type="button" class="seg-btn ${sort === 'delta' ? 'is-on' : ''}" data-action="sort" data-sort="delta">Разница</button>
         </div>
@@ -1011,7 +1055,7 @@ function renderTable(store, tournament) {
                 <th class="name">Игрок</th>
                 <th class="stat">В</th>
                 <th class="stat">П</th>
-                <th class="pts">Очки</th>
+                <th class="pts">${scoreNoun}</th>
                 <th class="delta">Δ</th>
               </tr>
             </thead>
