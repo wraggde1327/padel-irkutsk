@@ -11,6 +11,7 @@ export function defaultSettings() {
     winByTwo: true,
     gamesPerPairing: 1,
     gamesToWin: 6,
+    gamesTotal: false,
     decidingGame: true,
     qualifyingEnabled: false,
     qualifyingPoints: 15,
@@ -42,6 +43,13 @@ export function defaultSettingsFor(format) {
   }
   if (format === 'mexicano') settings.mexicanoPairing = '1-4';
   if (format === 'king') settings.kingOfTheCourt = true;
+  if (format === 'pair-escalera') {
+    settings.scoringMode = 'games';
+    settings.setScore = true;
+    settings.gamesTotal = true;
+    settings.gamesToWin = 4;
+    settings.decidingGame = false;
+  }
   return settings;
 }
 

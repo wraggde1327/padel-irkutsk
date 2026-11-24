@@ -182,6 +182,35 @@ test('finishedAt round-trips and import keeps it', () => {
   assert.equal(isFinished(added), true);
 });
 
+test('pair-escalera defaults to games total; old Lunda save stays total', () => {
+  const fresh = defaultSettingsFor('pair-escalera');
+  assert.equal(fresh.scoringMode, 'games');
+  assert.equal(fresh.gamesToWin, 4);
+  assert.equal(fresh.gamesTotal, true);
+  const storage = memoryStorage();
+  storage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      version: 2,
+      tournaments: [
+        {
+          id: 't1',
+          name: 'Старая эскалера',
+          settings: { tournamentFormat: 'pair-escalera', scoringMode: 'total', totalPoints: 21 },
+          players: [],
+          rounds: [],
+        },
+      ],
+      nextTournamentNum: 2,
+      ui: { screen: 'home', activeId: null },
+    }),
+  );
+  const loaded = loadState(storage);
+  assert.equal(loaded.tournaments[0].settings.scoringMode, 'total');
+  assert.equal(loaded.tournaments[0].settings.totalPoints, 21);
+  assert.equal(loaded.tournaments[0].settings.gamesTotal, false);
+});
+
 test('buildExportPayload tags the app', () => {
   const payload = buildExportPayload([{ id: 't1', name: 'X', players: [], settings: {}, rounds: [] }]);
   assert.equal(payload.app, 'padel-mini-tracker');
