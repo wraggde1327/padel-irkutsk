@@ -1,12 +1,14 @@
 import {
   gamesSum,
   gamesToWin,
+  GAMES_TOTAL_PRESETS,
   isGameComplete,
   matchComplete,
   neededGames,
   POINTS_PRESETS,
   scoreWheelMax,
   settingsForRound,
+  usesGamesTotal,
 } from './scoring.js';
 import { computeStandings, sortStandings, standingMarks, standingPlace } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
@@ -39,6 +41,15 @@ function ruGames(n) {
   return 'игр';
 }
 
+function ruGeyms(n) {
+  const m = Math.abs(Number(n)) % 100;
+  const d = m % 10;
+  if (m > 10 && m < 20) return 'геймов';
+  if (d === 1) return 'гейм';
+  if (d >= 2 && d <= 4) return 'гейма';
+  return 'геймов';
+}
+
 function ruCourts(n) {
   const v = Number(n);
   if (v === 1) return '1 корт';
@@ -56,6 +67,10 @@ export function canPlayMixed(players) {
 }
 
 export function scoringSummary(s) {
+  if (usesGamesTotal(s)) {
+    const n = gamesToWin(s);
+    return `${n} ${ruGeyms(n)}${s.decidingGame ? ' + решающий' : ''}`;
+  }
   if (s.scoringMode === 'games') {
     const n = gamesToWin(s);
     if (s.setScore || s.gamesToWin) {
@@ -328,8 +343,7 @@ function renderFormatSettings(s, { draft = false, players = [], hideQualifying =
       ${renderMixed(s, action, okMixed, players)}
       <p class="hint">Ровно 8 игроков, 2 корта. Три круга — каждая пара играет с каждой, затем новые пары по таблице.</p>
       <h3>Счёт матча</h3>
-      <p class="hint">Как в Lunda: игра до суммы очков, без разницы в 2.</p>
-      ${renderScoringFields(s, { lunda: true, draft })}`;
+      ${renderPairEscaleraGamesFields(s, { draft })}`;
   }
   if (format === 'free') {
     return `
@@ -478,6 +492,31 @@ function renderPointsFields(s, { draft = false } = {}) {
       <input type="checkbox" data-action="${toggle}" data-key="winByTwo" ${s.winByTwo ? 'checked' : ''} />
       <span>Победа с разницей в 2</span>
     </label>`;
+}
+
+function renderPairEscaleraGamesFields(s, { draft = false } = {}) {
+  const action = draft ? 'draft-setting-val' : 'setting-val';
+  const toggle = draft ? 'draft-toggle' : 'toggle';
+  const gamesOn = s.scoringMode === 'games';
+  const n = gamesOn ? gamesToWin(s) : 4;
+  const half = n / 2;
+  return `
+    <p class="field-label">Геймов в матче</p>
+    <div class="seg wrap">
+      ${GAMES_TOTAL_PRESETS.map(
+        (v) =>
+          `<button type="button" class="seg-btn ${gamesOn && n === v ? 'is-on' : ''}" data-action="${action}" data-key="gamesToWin" data-value="${v}">${v}</button>`,
+      ).join('')}
+    </div>
+    <label class="toggle">
+      <input type="checkbox" data-action="${toggle}" data-key="decidingGame" ${s.decidingGame && gamesOn ? 'checked' : ''} />
+      <span>Плюс один гейм при равенстве</span>
+    </label>
+    <p class="hint">${
+      s.decidingGame && gamesOn
+        ? `Счёт в сумме ${n}. При ${half}:${half} играется ещё один гейм, итог ${half + 1}:${half}.`
+        : `Счёт в сумме ${n}. При ${half}:${half} — ничья.`
+    }</p>`;
 }
 
 function renderGamesFields(s, { draft = false } = {}) {

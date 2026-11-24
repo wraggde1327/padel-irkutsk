@@ -414,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.18');
+  assert.equal(sw.version, '0.7.19');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -1112,16 +1112,61 @@ async function main() {
   }
 
   await resetApp(page);
-  await createViaUi(page, 'pair-escalera', 'Парная эскалера');
+  await page.click('#btn-create');
+  await page.waitForSelector('[data-action="pick-format"][data-format="pair-escalera"]');
+  await page.click('[data-action="pick-format"][data-format="pair-escalera"]');
+  await page.waitForSelector('#btn-create-ok');
+  for (const n of [4, 6, 8, 10, 12]) {
+    assert.ok(await page.locator(`[data-key="gamesToWin"][data-value="${n}"]`).count(), `games chip ${n}`);
+  }
+  assert.equal(await page.locator('[data-key="gamesToWin"]').count(), 5);
+  assert.ok(await page.locator('[data-key="gamesToWin"][data-value="4"].is-on').count());
+  assert.equal(await page.locator('[data-key="scoringMode"]').count(), 0);
+  assert.equal(await page.locator('[data-action="total-pts"]').count(), 0);
+  assert.ok(await page.locator('[data-key="decidingGame"]').count());
+  assert.match(await page.locator('.hint').allInnerTexts().then((xs) => xs.join('\n')), /ничья/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-games-settings.png'), fullPage: true });
+  await page.fill('[data-action="draft-name"]', 'Парная эскалера');
+  await page.click('#btn-create-ok');
+  await page.waitForSelector('#add-name');
   await addPlayers(page, NAMES8);
+  await page.click('[data-action="open-settings"]');
+  await page.waitForSelector('[data-key="gamesToWin"][data-value="12"]');
+  await page.click('[data-key="gamesToWin"][data-value="12"]');
+  await page.click('[data-key="decidingGame"]');
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('padel-mini-tracker-v1');
+    const store = raw && JSON.parse(raw);
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    return t?.settings?.gamesToWin === 12 && t?.settings?.decidingGame === true;
+  });
+  assert.match(await page.locator('.hint').allInnerTexts().then((xs) => xs.join('\n')), /7:6/);
+  await page.click('[data-key="gamesToWin"][data-value="4"]');
+  await page.click('[data-key="decidingGame"]');
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('padel-mini-tracker-v1');
+    const store = raw && JSON.parse(raw);
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    return t?.settings?.gamesToWin === 4 && t?.settings?.decidingGame === false;
+  });
   await page.click('[data-tab="play"]');
   await page.click('#btn-next-round');
   await page.waitForSelector('.match');
   assert.equal(await page.locator('.match').count(), 2);
   assert.match(await page.locator('.round').first().innerText(), /круг 1 из 3/);
+  assert.match(await page.locator('.summary-line').innerText(), /4 гейма/);
+  await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '3');
+  const firstScore = await page.evaluate(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    const g = t?.rounds[0]?.matches[0]?.games?.[0];
+    return { a: g?.a, b: g?.b, mode: t?.settings?.scoringMode, n: t?.settings?.gamesToWin };
+  });
+  assert.deepEqual(firstScore, { a: 3, b: 1, mode: 'games', n: 4 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-games-round.png'), fullPage: true });
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-round.png'), fullPage: true });
   for (let i = 0; i < 3; i += 1) {
-    await fillCurrentRound(page, 15, 6);
+    await fillCurrentRound(page, 4, 0);
     if (i < 2) {
       await page.click('#btn-next-round');
       await page.waitForFunction((n) => {

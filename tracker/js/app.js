@@ -235,11 +235,22 @@ const SCORING_KEYS = new Set([
   'gamesPerPairing',
 ]);
 
+function applyPairEscaleraGames(settings, { key } = {}) {
+  if ((settings.tournamentFormat || '') !== 'pair-escalera') return;
+  if (key && key !== 'gamesToWin' && key !== 'decidingGame') return;
+  const wasGames = settings.scoringMode === 'games' && settings.gamesTotal;
+  settings.scoringMode = 'games';
+  settings.setScore = true;
+  settings.gamesTotal = true;
+  if (!wasGames && key === 'gamesToWin') settings.decidingGame = false;
+}
+
 function patchLiveSettings(t, patch) {
   const keys = Object.keys(patch);
   if (keys.some((key) => SCORING_KEYS.has(key))) freezeRoundScoring(t.rounds, t.settings);
   for (const [key, value] of Object.entries(patch)) {
     patchSettings(t.settings, key, key === 'gamesToWin' ? Number(value) : value);
+    applyPairEscaleraGames(t.settings, { key });
   }
   if (t.settings.scoringMode === 'games') t.settings.setScore = true;
   if (t.settings.scoringMode === 'total') t.settings.winByTwo = false;
@@ -973,6 +984,7 @@ function onClick(event) {
     const key = btn.dataset.key;
     const value = key === 'gamesToWin' ? Number(btn.dataset.value) : btn.dataset.value;
     patchSettings(store.ui.draft.settings, key, value);
+    applyPairEscaleraGames(store.ui.draft.settings, { key });
     if (store.ui.draft.settings.scoringMode === 'games') store.ui.draft.settings.setScore = true;
     paint();
     return;
@@ -1013,6 +1025,7 @@ function onChange(event) {
   }
   if (action === 'draft-toggle' && el instanceof HTMLInputElement && store.ui.draft) {
     store.ui.draft.settings[el.dataset.key] = el.checked;
+    applyPairEscaleraGames(store.ui.draft.settings, { key: el.dataset.key });
     paint();
     return;
   }

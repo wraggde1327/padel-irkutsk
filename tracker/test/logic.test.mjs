@@ -12,10 +12,13 @@ import {
   applyTennisPoint,
   applyScoreWithSync,
   autoFillGames,
+  autoFillGamesTotal,
   autoFillOther,
   autoFillScore,
   clampScoreValue,
   freezeRoundScoring,
+  GAMES_TOTAL_PRESETS,
+  isValidGamesTotalScore,
   isValidSetScore,
   matchComplete,
   neededGames,
@@ -24,14 +27,24 @@ import {
   settingsForRound,
   tennisLabel,
   POINTS_PRESETS,
+  usesGamesTotal,
 } from '../js/scoring.js';
 import { computeStandings, sortStandings, standingMarks, standingPlace } from '../js/standings.js';
+import { scoringSummary } from '../js/render.js';
 import {
   assertRoundKindAllowed,
   mustStartWithQualifying,
   qualificationTooLate,
 } from '../js/qualification.js';
-import { clearState, emptyStore, emptyTournament, loadState, saveState, STORAGE_KEY } from '../js/state.js';
+import {
+  clearState,
+  defaultSettingsFor,
+  emptyStore,
+  emptyTournament,
+  loadState,
+  saveState,
+  STORAGE_KEY,
+} from '../js/state.js';
 import { autoCourts, compactMatchLine, compactSittingLine, rotateSitters } from '../js/pairs.js';
 import {
   isTapGesture,
@@ -715,4 +728,114 @@ test('12 players / 3 courts layout', () => {
     matches.map((m) => m.court),
     [1, 2, 3],
   );
+});
+
+test('pair-escalera defaults to 4 games that sum to the limit', () => {
+  const s = defaultSettingsFor('pair-escalera');
+  assert.equal(s.scoringMode, 'games');
+  assert.equal(s.gamesTotal, true);
+  assert.equal(s.gamesToWin, 4);
+  assert.equal(s.decidingGame, false);
+  assert.equal(s.setScore, true);
+  assert.equal(usesGamesTotal(s, 'regular'), true);
+  assert.deepEqual(GAMES_TOTAL_PRESETS, [4, 6, 8, 10, 12]);
+  assert.equal(scoringSummary(s), '4 гейма');
+  s.decidingGame = true;
+  assert.equal(scoringSummary(s), '4 гейма + решающий');
+  s.gamesToWin = 12;
+  assert.equal(scoringSummary(s), '12 геймов + решающий');
+  const lunda = defaultSettingsFor('americano');
+  assert.equal(lunda.scoringMode, 'total');
+  assert.equal(usesGamesTotal(lunda, 'regular'), false);
+});
+
+test('pair-escalera games total: auto-fill sums to N, decider is half+1', () => {
+  const n4 = { scoringMode: 'games', gamesTotal: true, gamesToWin: 4, decidingGame: false };
+  const n4dec = { ...n4, decidingGame: true };
+  const n12 = { scoringMode: 'games', gamesTotal: true, gamesToWin: 12, decidingGame: false };
+  const n12dec = { ...n12, decidingGame: true };
+  assert.equal(autoFillGamesTotal(4, 4, false), 0);
+  assert.equal(autoFillGamesTotal(3, 4, false), 1);
+  assert.equal(autoFillGamesTotal(2, 4, false), 2);
+  assert.equal(autoFillGamesTotal(3, 4, true), 2);
+  assert.equal(autoFillGamesTotal(4, 4, true), 0);
+  assert.equal(autoFillGamesTotal(1, 4, true), 3);
+  assert.equal(autoFillGamesTotal(7, 12, true), 6);
+  assert.equal(autoFillGamesTotal(7, 12, false), 5);
+  assert.equal(autoFillGamesTotal(12, 12, true), 0);
+  assert.equal(autoFillScore(3, n4, 'regular'), 1);
+  assert.equal(autoFillScore(3, n4dec, 'regular'), 2);
+  assert.equal(autoFillScore(7, n12dec, 'regular'), 6);
+  assert.equal(applyScoreWithSync({ a: null, b: null }, 'a', 3, n4, 'regular').b, 1);
+  assert.equal(applyScoreWithSync({ a: null, b: null }, 'a', 3, n4dec, 'regular').b, 2);
+  assert.equal(applyScoreWithSync({ a: 2, b: 2 }, 'a', 3, n4dec, 'regular').b, 2);
+  assert.equal(applyScoreWithSync({ a: 3, b: 2 }, 'b', 1, n4dec, 'regular').a, 3);
+  assert.equal(scoreWheelMax(n12dec, 'regular'), 12);
+});
+
+test('pair-escalera games total: valid scores and match complete', () => {
+  const n4 = { scoringMode: 'games', gamesTotal: true, gamesToWin: 4, decidingGame: false };
+  const n4dec = { ...n4, decidingGame: true };
+  const n12dec = { scoringMode: 'games', gamesTotal: true, gamesToWin: 12, decidingGame: true };
+  assert.equal(isValidGamesTotalScore(4, 0, n4), true);
+  assert.equal(isValidGamesTotalScore(3, 1, n4), true);
+  assert.equal(isValidGamesTotalScore(2, 2, n4), true);
+  assert.equal(isValidGamesTotalScore(3, 2, n4), false);
+  assert.equal(isValidGamesTotalScore(2, 2, n4dec), false);
+  assert.equal(isValidGamesTotalScore(3, 2, n4dec), true);
+  assert.equal(isValidGamesTotalScore(3, 1, n4dec), true);
+  assert.equal(isValidGamesTotalScore(4, 0, n4dec), true);
+  assert.equal(isValidGamesTotalScore(7, 6, n12dec), true);
+  assert.equal(isValidGamesTotalScore(6, 6, n12dec), false);
+  assert.equal(isValidGamesTotalScore(12, 0, n12dec), true);
+  assert.equal(isValidGamesTotalScore(8, 4, n12dec), true);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 2, b: 2 }] }, n4, 'regular'), true);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 2, b: 2 }] }, n4dec, 'regular'), false);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 3, b: 2 }] }, n4dec, 'regular'), true);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 7, b: 6 }] }, n12dec, 'regular'), true);
+});
+
+test('pair-escalera games total: standings count games and draws', () => {
+  const players = players8().slice(0, 4);
+  const settings = {
+    tournamentFormat: 'pair-escalera',
+    scoringMode: 'games',
+    gamesTotal: true,
+    gamesToWin: 4,
+    decidingGame: true,
+  };
+  const rounds = [
+    {
+      kind: 'regular',
+      scoring: { scoringMode: 'games', gamesTotal: true, gamesToWin: 4, decidingGame: true },
+      matches: [{ court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], games: [{ a: 3, b: 2 }] }],
+    },
+    {
+      kind: 'regular',
+      scoring: { scoringMode: 'games', gamesTotal: true, gamesToWin: 4, decidingGame: false },
+      matches: [{ court: 1, teamA: ['p1', 'p2'], teamB: ['p3', 'p4'], games: [{ a: 2, b: 2 }] }],
+    },
+  ];
+  const rows = computeStandings(players, rounds, settings);
+  const anna = rows.find((r) => r.id === 'p1');
+  assert.equal(anna.wins, 1);
+  assert.equal(anna.ties, 1);
+  assert.equal(anna.pointsFor, 5);
+  assert.equal(anna.pointsAgainst, 4);
+  assert.equal(anna.delta, 1);
+});
+
+test('old pair-escalera total-points saves still load as Lunda', () => {
+  const legacy = {
+    tournamentFormat: 'pair-escalera',
+    scoringMode: 'total',
+    totalPoints: 21,
+    gamesToWin: 6,
+  };
+  assert.equal(usesGamesTotal(legacy, 'regular'), false);
+  assert.equal(autoFillScore(15, legacy, 'regular'), 6);
+  assert.equal(matchComplete({ kind: 'regular', games: [{ a: 15, b: 6 }] }, legacy, 'regular'), true);
+  const snap = scoringSnapshot(legacy);
+  assert.equal(snap.scoringMode, 'total');
+  assert.equal(snap.gamesTotal, false);
 });
