@@ -414,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.17');
+  assert.equal(sw.version, '0.7.18');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -943,9 +943,12 @@ async function main() {
   assert.equal(await page.locator('.top .eyebrow').count(), 0);
   assert.equal(await page.locator('header h1').innerText(), 'Американо утро');
   const names = await page.locator('#final-standings table.standings tbody tr td.name').allInnerTexts();
-  assert.match(names[0], /🥇/);
-  assert.match(names[1], /🥈/);
-  assert.match(names[2], /🥉/);
+  const places = await page.locator('#final-standings table.standings tbody tr td.num').allInnerTexts();
+  assert.match(places[0], /🥇/);
+  assert.match(places[1], /🥈/);
+  assert.match(places[2], /🥉/);
+  assert.match(places[3], /^4$/);
+  assert.equal(names.some((n) => /🥇|🥈|🥉/.test(n)), false);
   assert.ok(names.some((n) => n.includes('🎉 лучшая девушка')));
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-finished-table.png'), fullPage: true });
   await page.setViewportSize({ width: 360, height: 800 });
@@ -1318,6 +1321,38 @@ async function main() {
   await page.waitForFunction(() => document.querySelectorAll('.round').length === 2);
   store = await readState(page);
   assert.equal(activeOf(store).rounds[1].scoring.scoringMode, 'points');
+
+  await resetApp(page);
+  await createViaUi(page, 'free', 'Длинные имена');
+  const LONG_NAMES = ['Наташа', 'Александр', 'Екатерина', 'Владислав', 'Анастасия', 'Максим', 'Ольга', 'Дмитрий'];
+  await addPlayers(page, LONG_NAMES);
+  await page.click('[data-tab="play"]');
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match');
+  await fillCurrentRound(page, 15, 7);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.click('#btn-finish');
+  await page.waitForSelector('#final-standings');
+  const girlBox = await page.locator('.best-woman').first().boundingBox();
+  const nameUnderGirl = await page.locator('tr:has(.best-woman) .player-name').boundingBox();
+  assert.ok(girlBox && nameUnderGirl);
+  assert.ok(
+    girlBox.y + girlBox.height <= nameUnderGirl.y + 1,
+    `best-girl badge should sit above the name (${girlBox.y}+${girlBox.height} vs ${nameUnderGirl.y})`,
+  );
+  for (const who of ['Наташа', 'Александр']) {
+    const box = await page.locator('.player-name', { hasText: who }).boundingBox();
+    assert.ok(box && box.height <= 22, `${who} wrapped (${box?.height})`);
+  }
+  assert.match(await page.locator('tbody tr:nth-child(4) td.num').innerText(), /^4$/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-standings-medals.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  for (const who of ['Наташа', 'Александр']) {
+    const box = await page.locator('.player-name', { hasText: who }).boundingBox();
+    assert.ok(box && box.height <= 22, `${who} wrapped at 375 (${box?.height})`);
+  }
+  await page.screenshot({ path: join(screenshotDir, 'mobile-375-standings-medals.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await resetApp(page);

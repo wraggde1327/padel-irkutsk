@@ -25,7 +25,7 @@ import {
   tennisLabel,
   POINTS_PRESETS,
 } from '../js/scoring.js';
-import { computeStandings, sortStandings, standingMarks } from '../js/standings.js';
+import { computeStandings, sortStandings, standingMarks, standingPlace } from '../js/standings.js';
 import {
   assertRoundKindAllowed,
   mustStartWithQualifying,
@@ -183,6 +183,26 @@ test('pair-escalera mixed falls back to last remaining if no opposite gender', (
       ['2', '3'],
     ],
   );
+});
+
+test('standing place: medals for 1–3, numbers from 4, ties keep sort order', () => {
+  assert.equal(standingPlace(0).medal, '🥇');
+  assert.equal(standingPlace(1).medal, '🥈');
+  assert.equal(standingPlace(2).medal, '🥉');
+  assert.equal(standingPlace(3).medal, '');
+  assert.equal(standingPlace(3).label, '4');
+  assert.equal(standingPlace(9).label, '10');
+  const tied = sortStandings(
+    [
+      { id: 'a', name: 'Борис', pointsFor: 10, wins: 1, delta: 0 },
+      { id: 'b', name: 'Анна', pointsFor: 10, wins: 1, delta: 0 },
+      { id: 'c', name: 'Вера', pointsFor: 8, wins: 0, delta: -2 },
+    ],
+    'points',
+  );
+  assert.equal(tied[0].name, 'Анна');
+  assert.equal(standingPlace(0).medal, '🥇');
+  assert.equal(standingPlace(1).medal, '🥈');
 });
 
 test('standing marks: medals and best woman, skip 🎉 without gender', () => {
