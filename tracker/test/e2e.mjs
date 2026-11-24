@@ -414,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.15');
+  assert.equal(sw.version, '0.7.16');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -1103,6 +1103,7 @@ async function main() {
   await resetApp(page);
   await createViaUi(page, 'free', 'Смена пар');
   await addPlayers(page, NAMES8);
+  await seedActiveSettings(page, { pairType: 'mixed', formatVariant: 'mixed' });
   await page.click('[data-tab="play"]');
   await page.click('#btn-next-round');
   await page.waitForSelector('.match');
@@ -1126,12 +1127,24 @@ async function main() {
     const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
     return t && t.rounds.length >= 1 && t.rounds.at(-1).override;
   });
+  assert.ok(await page.locator('#btn-change-pairs').isVisible(), 'button stays after first reshuffle');
+  await page.click('#btn-change-pairs');
+  await page.waitForSelector('#new-pairs');
+  await page.click('[data-action="new-pairs"][data-method="random"]');
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('padel-mini-tracker-v1');
+    const store = raw && JSON.parse(raw);
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    return t && t.settings.pairMethod === 'random' && t.rounds.length >= 1 && !t.rounds.at(-1).matches.some((m) =>
+      (m.games || []).some((g) => g && ((g.a != null && g.a !== '') || (g.b != null && g.b !== ''))),
+    );
+  });
+  assert.ok(await page.locator('#btn-change-pairs').isVisible(), 'button stays after second reshuffle');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-change-pairs-after-reshuffle.png'), fullPage: true });
   const opened = activeOf(await readState(page));
   const openIndex = opened.rounds.length - 1;
   await typeScore(page, page.locator(`.score-box[data-round="${openIndex}"][data-side="a"]`).first(), '12');
-  await page.click('#btn-change-pairs');
-  await page.waitForSelector('.callout');
-  assert.match(await page.locator('#new-pairs .callout').innerText(), /уже есть счета/);
+  assert.equal(await page.locator('#btn-change-pairs').count(), 0, 'hide change-pairs after first score');
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-new-pairs-partial.png'), fullPage: true });
 
   await typeScore(page, page.locator('#score-r0-c1-g0-a'), '15');

@@ -76,10 +76,84 @@ export function rankingMixedBalanced(ranked) {
   return pairs;
 }
 
-export function rotateMixedPairs(players, counts, rng = Math.random) {
+function avoidSet(avoidKeys) {
+  if (!avoidKeys) return new Set();
+  return avoidKeys instanceof Set ? avoidKeys : new Set(avoidKeys);
+}
+
+/** Повторы дороже, чем совпадение с текущим кругом; джиттер только для ничьих. */
+export function pairHistoryScore(pairs, counts, avoidKeys, rng = () => 0) {
+  const avoid = avoidSet(avoidKeys);
+  let score = 0;
+  for (const [a, b] of pairs) {
+    const key = partnerKey(a.id || a, b.id || b);
+    score += (counts.get(key) || 0) * 1000;
+    if (avoid.has(key)) score += 50;
+  }
+  return score + rng() * 0.01;
+}
+
+function forEachPermutation(items, visit) {
+  const a = items.slice();
+  const n = a.length;
+  if (!n) {
+    visit(a);
+    return;
+  }
+  const c = Array(n).fill(0);
+  visit(a);
+  let i = 0;
+  while (i < n) {
+    if (c[i] < i) {
+      const j = i % 2 === 0 ? 0 : c[i];
+      const tmp = a[j];
+      a[j] = a[i];
+      a[i] = tmp;
+      visit(a);
+      c[i] += 1;
+      i = 0;
+    } else {
+      c[i] = 0;
+      i += 1;
+    }
+  }
+}
+
+function randomMixedPairs(players, counts, rng, avoidKeys) {
+  const men = shuffle(
+    players.filter((p) => p.gender !== 'F'),
+    rng,
+  );
+  const women = shuffle(
+    players.filter((p) => p.gender === 'F'),
+    rng,
+  );
+  if (men.length !== women.length || !men.length) return [];
+  let best = null;
+  let bestScore = Infinity;
+  const take = (perm) => {
+    const pairs = men.map((man, i) => [man, perm[i]]);
+    const score = pairHistoryScore(pairs, counts, avoidKeys, rng);
+    if (score < bestScore) {
+      bestScore = score;
+      best = pairs;
+    }
+  };
+  if (women.length <= 7) {
+    forEachPermutation(women, take);
+  } else {
+    for (let attempt = 0; attempt < 360; attempt += 1) {
+      take(shuffle(women, rng));
+    }
+  }
+  return best || [];
+}
+
+export function rotateMixedPairs(players, counts, rng = Math.random, avoidKeys = null) {
   const men = players.filter((p) => p.gender !== 'F');
   const women = players.filter((p) => p.gender === 'F');
   if (men.length !== women.length || men.length < 2) return [];
+  const avoid = avoidSet(avoidKeys);
   let best = null;
   let bestScore = Infinity;
   for (let attempt = 0; attempt < 240; attempt += 1) {
@@ -94,7 +168,7 @@ export function rotateMixedPairs(players, counts, rng = Math.random) {
       for (let i = 0; i < left.length; i += 1) {
         if (used.has(i)) continue;
         const k = partnerKey(man.id, left[i].id);
-        const s = counts.get(k) || 0;
+        const s = (counts.get(k) || 0) * 1000 + (avoid.has(k) ? 50 : 0);
         if (s < pickScore) {
           pickScore = s;
           pick = i;
@@ -105,10 +179,11 @@ export function rotateMixedPairs(players, counts, rng = Math.random) {
         break;
       }
       used.add(pick);
-      score += pickScore * 100;
+      score += pickScore;
       pairs.push([man, left[pick]]);
     }
     if (!ok) continue;
+    score += rng() * 0.01;
     if (score < bestScore) {
       bestScore = score;
       best = pairs;
@@ -117,32 +192,19 @@ export function rotateMixedPairs(players, counts, rng = Math.random) {
   return best || [];
 }
 
-export function randomPartnerPairs(players, mixed, counts, rng = Math.random) {
+export function randomPartnerPairs(players, mixed, counts, rng = Math.random, avoidKeys = null) {
+  if (mixed) return randomMixedPairs(players, counts, rng, avoidKeys);
   const need = players.length / 2;
   let best = null;
   let bestScore = Infinity;
   for (let attempt = 0; attempt < 360; attempt += 1) {
     const shuffled = shuffle(players.slice(), rng);
     const pairs = [];
-    let score = 0;
-    let ok = true;
-    if (mixed) {
-      const men = shuffled.filter((p) => p.gender !== 'F');
-      const women = shuffled.filter((p) => p.gender === 'F');
-      if (men.length !== women.length) ok = false;
-      else {
-        for (let i = 0; i < men.length; i += 1) {
-          pairs.push([men[i], women[i]]);
-          score += (counts.get(partnerKey(men[i].id, women[i].id)) || 0) * 100;
-        }
-      }
-    } else {
-      for (let i = 0; i + 1 < shuffled.length; i += 2) {
-        pairs.push([shuffled[i], shuffled[i + 1]]);
-        score += (counts.get(partnerKey(shuffled[i].id, shuffled[i + 1].id)) || 0) * 100;
-      }
+    for (let i = 0; i + 1 < shuffled.length; i += 2) {
+      pairs.push([shuffled[i], shuffled[i + 1]]);
     }
-    if (!ok || pairs.length !== need) continue;
+    if (pairs.length !== need) continue;
+    const score = pairHistoryScore(pairs, counts, avoidKeys, rng);
     if (score < bestScore) {
       bestScore = score;
       best = pairs;
@@ -151,7 +213,34 @@ export function randomPartnerPairs(players, mixed, counts, rng = Math.random) {
   return best || [];
 }
 
-export function formPairs({ method, players, standings, rounds, settings, rng = Math.random }) {
+/** § смена пар: запомнить выбранный способ и использовать его на следующих кругах. */
+export function resolveAutoPairMethod(settings, method = null) {
+  if (method) return method;
+  const saved = settings.pairMethod;
+  if (saved === 'random' || saved === 'rotate-mixed' || saved === 'ranking-mixed') return saved;
+  if (settings.pairType === 'mixed') return 'ranking-mixed';
+  return 'ranking';
+}
+
+export function isShufflingPairMethod(method) {
+  return method === 'random' || method === 'rotate-mixed';
+}
+
+export function shouldReformFreePairs(settings, method, locked, fixedPairs) {
+  if (method) return true;
+  if (!locked || !fixedPairs?.length) return true;
+  return isShufflingPairMethod(settings.pairMethod);
+}
+
+export function formPairs({
+  method,
+  players,
+  standings,
+  rounds,
+  settings,
+  rng = Math.random,
+  avoidKeys = null,
+}) {
   const mixedOn = settings.pairType === 'mixed';
   const { m, f } = genderCounts(players);
   const canMixed = m === f && m > 0;
@@ -164,12 +253,12 @@ export function formPairs({ method, players, standings, rounds, settings, rng = 
   }
   if (method === 'rotate-mixed') {
     if (!canMixed) throw new Error('Для М+Ж нужно поровну мужчин и женщин.');
-    const pairs = rotateMixedPairs(players, counts, rng);
+    const pairs = rotateMixedPairs(players, counts, rng, avoidKeys);
     if (!pairs.length) throw new Error('Не удалось подобрать новые пары М+Ж.');
     return pairs;
   }
   if (method === 'random') {
-    const pairs = randomPartnerPairs(players, mixedOn && canMixed, counts, rng);
+    const pairs = randomPartnerPairs(players, mixedOn && canMixed, counts, rng, avoidKeys);
     if (!pairs.length) throw new Error('Не удалось собрать случайные пары.');
     return pairs;
   }
@@ -257,6 +346,18 @@ export function playerPairsToIds(pairs) {
   return pairs.map((pair) => pair.map((p) => (p.id ? p.id : p)));
 }
 
+function mergedAvoidKeys(rounds, avoidKeys) {
+  const set = avoidSet(avoidKeys);
+  const last = [...rounds].reverse().find((r) => r.kind === 'regular' && r.matches?.length);
+  if (last) {
+    for (const match of last.matches) {
+      set.add(partnerKey(match.teamA[0], match.teamA[1]));
+      set.add(partnerKey(match.teamB[0], match.teamB[1]));
+    }
+  }
+  return set;
+}
+
 export function nextFreeRound({
   players,
   settings,
@@ -265,6 +366,7 @@ export function nextFreeRound({
   fixedPairs,
   method = null,
   rng = Math.random,
+  avoidKeys = null,
 }) {
   const roundIndex = rounds.filter((r) => r.kind === 'regular').length;
   const { sitting, playingPlayers } = splitSitters(players, roundIndex);
@@ -272,15 +374,31 @@ export function nextFreeRound({
   const sit = pool === players ? [] : sitting;
   const locked = (settings.pairLock || 'locked') === 'locked';
   const change = Boolean(method);
+  const autoMethod = resolveAutoPairMethod(settings, method);
+  const reform = shouldReformFreePairs(settings, method, locked, fixedPairs);
+  const avoid = mergedAvoidKeys(rounds, avoidKeys);
   let pairs;
-  if (change) {
-    pairs = formPairs({ method, players: pool, standings, rounds, settings, rng });
-  } else if (!locked || !fixedPairs?.length) {
-    const auto = settings.pairType === 'mixed' ? 'ranking-mixed' : 'ranking';
+  if (reform) {
     try {
-      pairs = formPairs({ method: auto, players: pool, standings, rounds, settings, rng });
+      pairs = formPairs({
+        method: autoMethod,
+        players: pool,
+        standings,
+        rounds,
+        settings,
+        rng,
+        avoidKeys: avoid,
+      });
     } catch {
-      pairs = formPairs({ method: 'ranking', players: pool, standings, rounds, settings, rng });
+      pairs = formPairs({
+        method: settings.pairType === 'mixed' ? 'ranking-mixed' : 'ranking',
+        players: pool,
+        standings,
+        rounds,
+        settings,
+        rng,
+        avoidKeys: avoid,
+      });
     }
   } else {
     const playSet = new Set(pool.map((p) => p.id));
@@ -299,6 +417,7 @@ export function nextFreeRound({
           rounds,
           settings,
           rng,
+          avoidKeys: avoid,
         });
       } catch {
         extra = formPairs({
@@ -308,6 +427,7 @@ export function nextFreeRound({
           rounds,
           settings,
           rng,
+          avoidKeys: avoid,
         });
       }
     }
@@ -341,6 +461,14 @@ export function nextFreeRound({
   if (useRr) note = 'Пары закреплены · круговой график соперников.';
   if (change) note = 'Новые закреплённые пары. Соперники с этого круга — по силе.';
   if (!locked && !change) note = 'Пары пересобраны по рейтингу.';
+  if (autoMethod === 'random' && reform) {
+    note =
+      settings.pairType === 'mixed'
+        ? 'Случайные пары М+Ж, меньше повторов.'
+        : 'Случайные пары, меньше повторов.';
+  } else if (autoMethod === 'rotate-mixed' && reform) {
+    note = 'Новый партнёр М+Ж, меньше повторов.';
+  }
   const sitLine = sittingNote(sit, players);
   if (sitLine) note = `${sitLine} · ${note}`;
 

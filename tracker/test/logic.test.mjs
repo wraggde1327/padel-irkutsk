@@ -238,6 +238,108 @@ test('qualifying is reproducible with a seed and uses all eight players', () => 
   assert.equal(new Set(ids).size, 8);
 });
 
+test('free mixed random next rounds avoid partner repeats', () => {
+  const players = players8();
+  assert.equal(players.filter((p) => p.gender === 'F').length, 4);
+  assert.equal(players.filter((p) => p.gender !== 'F').length, 4);
+  const settings = {
+    courts: 2,
+    pairType: 'mixed',
+    pairMethod: 'random',
+    pairLock: 'locked',
+    tournamentFormat: 'free',
+    standingsSort: 'points',
+  };
+  const rng = mulberry32(99);
+  const rounds = [];
+  let fixedPairs = [];
+  const seen = new Set();
+  const byId = new Map(players.map((p) => [p.id, p]));
+  for (let i = 0; i < 4; i += 1) {
+    const result = generateRound({
+      players,
+      settings,
+      standings: [],
+      rounds,
+      kind: 'regular',
+      fixedPairs,
+      rng,
+    });
+    const keys = result.matches.flatMap((m) => [
+      partnerKey(m.teamA[0], m.teamA[1]),
+      partnerKey(m.teamB[0], m.teamB[1]),
+    ]);
+    assert.equal(keys.length, 4);
+    for (const match of result.matches) {
+      for (const team of [match.teamA, match.teamB]) {
+        const g0 = byId.get(team[0])?.gender;
+        const g1 = byId.get(team[1])?.gender;
+        assert.notEqual(g0, g1, 'mixed pair must be one M and one F');
+      }
+    }
+    for (const key of keys) {
+      assert.equal(seen.has(key), false, `partner ${key} repeated on round ${i + 1}`);
+      seen.add(key);
+    }
+    rounds.push({ kind: 'regular', matches: result.matches, fixedPairs: result.fixedPairs });
+    fixedPairs = result.fixedPairs;
+  }
+  assert.equal(seen.size, 16);
+
+  const fifth = generateRound({
+    players,
+    settings,
+    standings: [],
+    rounds,
+    kind: 'regular',
+    fixedPairs,
+    rng,
+  });
+  const fifthKeys = fifth.matches.flatMap((m) => [
+    partnerKey(m.teamA[0], m.teamA[1]),
+    partnerKey(m.teamB[0], m.teamB[1]),
+  ]);
+  const counts = partnerCounts(rounds);
+  for (const key of fifthKeys) {
+    assert.equal(counts.get(key) || 0, 1, 'when repeats are forced, reuse the least-used pairs');
+  }
+});
+
+test('mixed random reshuffle avoids the current pairing', () => {
+  const players = players8();
+  const settings = {
+    courts: 2,
+    pairType: 'mixed',
+    pairMethod: 'random',
+    pairLock: 'locked',
+    tournamentFormat: 'free',
+  };
+  const first = generateRound({
+    players,
+    settings,
+    kind: 'regular',
+    method: 'random',
+    rng: mulberry32(3),
+  });
+  const avoidKeys = first.matches.flatMap((m) => [
+    partnerKey(m.teamA[0], m.teamA[1]),
+    partnerKey(m.teamB[0], m.teamB[1]),
+  ]);
+  const second = generateRound({
+    players,
+    settings,
+    kind: 'regular',
+    method: 'random',
+    rng: mulberry32(4),
+    avoidKeys,
+  });
+  const secondKeys = second.matches.flatMap((m) => [
+    partnerKey(m.teamA[0], m.teamA[1]),
+    partnerKey(m.teamB[0], m.teamB[1]),
+  ]);
+  assert.equal(secondKeys.some((k) => avoidKeys.includes(k)), false);
+});
+
 test('random mix prefers unused partners', () => {
   const players = players8();
   const settings = {

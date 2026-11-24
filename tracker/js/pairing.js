@@ -213,6 +213,7 @@ export function generateRound({
   method = null,
   fixedPairs = [],
   rng = Math.random,
+  avoidKeys = null,
 }) {
   assertRoster(players, settings);
   assertRoundKindAllowed(settings, rounds, kind);
@@ -233,7 +234,7 @@ export function generateRound({
   }
 
   if (method) {
-    return nextFreeRound({ players, settings, standings, rounds, fixedPairs, method, rng });
+    return nextFreeRound({ players, settings, standings, rounds, fixedPairs, method, rng, avoidKeys });
   }
 
   const format = settings.tournamentFormat || 'free';
@@ -258,5 +259,5 @@ export function generateRound({
     };
   }
 
-  return nextFreeRound({ players, settings, standings, rounds, fixedPairs, rng });
+  return nextFreeRound({ players, settings, standings, rounds, fixedPairs, rng, avoidKeys });
 }
