@@ -32,6 +32,7 @@ export {
   partnerKey,
   pairingsOfFour,
   rankingPartnerPairs,
+  pairEscaleraPairs,
   pairsToMatches,
   rotateSitters,
   sittingNote,
@@ -191,6 +192,12 @@ function mixedWanted(settings) {
 }
 
 function assertRoster(players, settings) {
+  if ((settings.tournamentFormat || '') === 'pair-escalera') {
+    if (players.length !== 8) {
+      throw new Error('Для парной эскалеры нужно ровно 8 игроков.');
+    }
+    return;
+  }
   if (players.length < 4) {
     throw new Error('Нужно минимум 4 игрока.');
   }

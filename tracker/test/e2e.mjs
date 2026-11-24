@@ -414,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.16');
+  assert.equal(sw.version, '0.7.17');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -477,6 +477,14 @@ async function main() {
 
   await page.click('#btn-create');
   await page.waitForSelector('[data-action="pick-format"][data-format="americano"]');
+  assert.equal(
+    (await page.locator('[data-format="pair-escalera"] strong').innerText()).trim(),
+    'Парная эскалера на 8 чел',
+  );
+  assert.match(
+    await page.locator('[data-format="pair-escalera"] span').innerText(),
+    /Играем по квалификации, выставляются участники в пары/,
+  );
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-create-format.png'), fullPage: true });
   await page.click('[data-action="pick-format"][data-format="americano"]');
   await page.waitForSelector('#btn-create-ok');
@@ -1099,6 +1107,39 @@ async function main() {
   for (const spec of formats) {
     await playFormat(page, spec);
   }
+
+  await resetApp(page);
+  await createViaUi(page, 'pair-escalera', 'Парная эскалера');
+  await addPlayers(page, NAMES8);
+  await page.click('[data-tab="play"]');
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match');
+  assert.equal(await page.locator('.match').count(), 2);
+  assert.match(await page.locator('.round').first().innerText(), /круг 1 из 3/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-round.png'), fullPage: true });
+  for (let i = 0; i < 3; i += 1) {
+    await fillCurrentRound(page, 15, 6);
+    if (i < 2) {
+      await page.click('#btn-next-round');
+      await page.waitForFunction((n) => {
+        const raw = localStorage.getItem('padel-mini-tracker-v1');
+        const store = raw && JSON.parse(raw);
+        const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+        return t && t.rounds.length === n;
+      }, i + 2);
+    }
+  }
+  assert.equal(await page.locator('#btn-next-round').count(), 0);
+  assert.ok(await page.locator('#btn-new-pair-cycle').isVisible());
+  assert.equal((await page.locator('#btn-new-pair-cycle').innerText()).trim(), 'Новые пары составляем');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-new-pairs.png'), fullPage: true });
+  await page.click('#btn-new-pair-cycle');
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('padel-mini-tracker-v1');
+    const store = raw && JSON.parse(raw);
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    return t && t.rounds.length === 4 && t.rounds.at(-1).cycleSlot === 0;
+  });
 
   await resetApp(page);
   await createViaUi(page, 'free', 'Смена пар');

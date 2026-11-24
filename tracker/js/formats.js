@@ -1,11 +1,12 @@
 import { countedGames, gamesSum, settingsForRound } from './scoring.js';
 import { rankPlayers } from './standings.js';
 import { shuffle } from './rng.js';
-import { nextFreeRound } from './fixed.js';
+import { nextFreeRound, playerPairsToIds, roundRobinMatchups } from './fixed.js';
 import {
   autoCourts,
   bestPairingOfFour,
   emptyMatch,
+  pairEscaleraPairs,
   pairingsOfFour,
   partnerCounts,
   partnerKey,
@@ -34,6 +35,11 @@ export const FORMAT_OPTIONS = [
     id: 'escalera',
     title: 'Эскалера',
     hint: 'На корте три смены пар. Двое лучших вверх, двое худших вниз. Сумма очков 15/17/19/21.',
+  },
+  {
+    id: 'pair-escalera',
+    title: 'Парная эскалера на 8 чел',
+    hint: 'Играем по квалификации, выставляются участники в пары. Далее эти пары играют каждая с каждым. Получается три игры с другими парами.',
   },
   {
     id: 'king',
@@ -590,6 +596,47 @@ export function nextFormatRound(args) {
   if (format === 'americano') return { ...nextAmericanoRound(args), format };
   if (format === 'mexicano') return { ...mexicanoMatches(args), format };
   if (format === 'escalera') return { ...nextEscaleraRound(args), format };
+  if (format === 'pair-escalera') return { ...nextPairEscaleraRound(args), format };
   if (format === 'king') return { ...nextKingRound(args), format };
   return null;
+}
+
+/** Цикл из 3 кругов с теми же парами завершён — дальше только «Новые пары составляем». */
+export function pairEscaleraCycleComplete(round) {
+  return Boolean(round && round.format === 'pair-escalera' && Number(round.cycleSlot) >= 2);
+}
+
+export function nextPairEscaleraRound({ players, settings, standings = [], rounds = [] }) {
+  if (players.length !== 8) {
+    throw new Error('Для парной эскалеры нужно ровно 8 игроков.');
+  }
+  const mixed = mixedWanted(settings);
+  const last = [...rounds].reverse().find((r) => r.kind === 'regular' && r.format === 'pair-escalera');
+  const reform = !last || last.cycleSlot == null || Number(last.cycleSlot) >= 2;
+  let idPairs;
+  let slot;
+  if (reform) {
+    const ranked = rankPlayers(players, standings, 'points');
+    idPairs = playerPairsToIds(pairEscaleraPairs(ranked, mixed));
+    slot = 0;
+  } else {
+    idPairs = last.fixedPairs;
+    slot = Number(last.cycleSlot) + 1;
+  }
+  if (!idPairs?.length || idPairs.length !== 4) {
+    throw new Error('Не удалось собрать 4 пары.');
+  }
+  const result = roundRobinMatchups(idPairs, slot);
+  const note = mixed
+    ? `Пары М+Ж · круг ${slot + 1} из 3`
+    : `Пары 1+последний · круг ${slot + 1} из 3`;
+  return {
+    matches: result.matches,
+    sitting: [],
+    fixedPairs: idPairs,
+    note,
+    warning: '',
+    format: 'pair-escalera',
+    cycleSlot: slot,
+  };
 }
