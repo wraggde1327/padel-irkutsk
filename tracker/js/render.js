@@ -8,7 +8,7 @@ import {
   scoreWheelMax,
   settingsForRound,
 } from './scoring.js';
-import { computeStandings, sortStandings, standingMarks } from './standings.js';
+import { computeStandings, sortStandings, standingMarks, standingPlace } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
 import { FORMAT_OPTIONS, formatTitle, pairEscaleraCycleComplete } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
@@ -916,21 +916,26 @@ function renderTable(store, tournament) {
   );
   const playersById = new Map(tournament.players.map((p) => [p.id, p]));
   const finished = isFinished(tournament);
-  const marks = finished ? standingMarks(rows) : [];
+  const marks = standingMarks(rows);
   const body = rows
     .map((r, i) => {
       const mark = marks[i];
-      const extras = [];
-      if (mark?.medal) extras.push(`<span class="medal" aria-hidden="true">${mark.medal}</span>`);
-      if (mark?.bestWoman) extras.push('<span class="best-woman">🎉 лучшая девушка</span>');
+      const place = standingPlace(i);
+      const placeCell = place.medal
+        ? `<span class="place-medal" aria-hidden="true">${place.medal}</span>`
+        : esc(place.label);
+      const girl =
+        finished && mark?.bestWoman
+          ? `<span class="best-woman">🎉 лучшая девушка</span>`
+          : '';
       return `
       <tr>
-        <td class="num">${i + 1}</td>
-        <td class="name">${esc(r.name)}${extras.length ? ` ${extras.join(' ')}` : ''}</td>
-        <td>${r.wins}</td>
-        <td>${r.losses}</td>
-        <td>${r.pointsFor}–${r.pointsAgainst}</td>
-        <td class="${r.delta > 0 ? 'pos' : r.delta < 0 ? 'neg' : ''}">${r.delta > 0 ? '+' : ''}${r.delta}</td>
+        <td class="num" aria-label="${place.n}">${placeCell}</td>
+        <td class="name">${girl}<span class="player-name">${esc(r.name)}</span></td>
+        <td class="stat">${r.wins}</td>
+        <td class="stat">${r.losses}</td>
+        <td class="pts">${r.pointsFor}–${r.pointsAgainst}</td>
+        <td class="delta ${r.delta > 0 ? 'pos' : r.delta < 0 ? 'neg' : ''}">${r.delta > 0 ? '+' : ''}${r.delta}</td>
       </tr>`;
     })
     .join('');
@@ -963,12 +968,12 @@ function renderTable(store, tournament) {
           <table class="standings">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Игрок</th>
-                <th>В</th>
-                <th>П</th>
-                <th>Очки</th>
-                <th>Δ</th>
+                <th class="num">#</th>
+                <th class="name">Игрок</th>
+                <th class="stat">В</th>
+                <th class="stat">П</th>
+                <th class="pts">Очки</th>
+                <th class="delta">Δ</th>
               </tr>
             </thead>
             <tbody>${body || '<tr><td colspan="6" class="empty">Нет результатов</td></tr>'}</tbody>

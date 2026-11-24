@@ -88,7 +88,14 @@ export function sortStandings(rows, sort) {
   return copy;
 }
 
-const MEDALS = ['🥇', '🥈', '🥉'];
+export const PLACE_MEDALS = ['🥇', '🥈', '🥉'];
+
+/** Место после текущей сортировки: 1–3 медаль, дальше номер. Ничья — как в таблице (имя). */
+export function standingPlace(index) {
+  const n = index + 1;
+  const medal = index < 3 ? PLACE_MEDALS[index] : '';
+  return { n, medal, label: medal || String(n) };
+}
 
 /** Медали 1–3 и 🎉 лучшая девушка (по полу F). Без женщин или без пола — без 🎉. */
 export function standingMarks(rows) {
@@ -96,7 +103,7 @@ export function standingMarks(rows) {
   const bestWomanId = hasGender ? rows.find((r) => r.gender === 'F')?.id || null : null;
   return rows.map((r, i) => ({
     id: r.id,
-    medal: i < 3 ? MEDALS[i] : '',
+    medal: standingPlace(i).medal,
     bestWoman: Boolean(bestWomanId && r.id === bestWomanId),
   }));
 }
