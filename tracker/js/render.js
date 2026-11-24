@@ -10,7 +10,7 @@ import {
 } from './scoring.js';
 import { computeStandings, sortStandings, standingMarks } from './standings.js';
 import { autoCourts, compactMatchLine, compactSittingLine, formatMatchLine, genderCounts } from './pairing.js';
-import { FORMAT_OPTIONS, formatTitle } from './formats.js';
+import { FORMAT_OPTIONS, formatTitle, pairEscaleraCycleComplete } from './formats.js';
 import { PAIR_CHANGE_METHODS } from './fixed.js';
 import { activeTournament, ensureMatchGames, isFinished } from './state.js';
 import {
@@ -323,6 +323,14 @@ function renderFormatSettings(s, { draft = false, players = [], hideQualifying =
   const toggle = draft ? 'draft-toggle' : 'toggle';
   const toggleBool = draft ? 'draft-toggle-bool' : 'toggle-bool';
   const okMixed = players.length ? canPlayMixed(players) : true;
+  if (format === 'pair-escalera') {
+    return `
+      ${renderMixed(s, action, okMixed, players)}
+      <p class="hint">Ровно 8 игроков, 2 корта. Три круга — каждая пара играет с каждой, затем новые пары по таблице.</p>
+      <h3>Счёт матча</h3>
+      <p class="hint">Как в Lunda: игра до суммы очков, без разницы в 2.</p>
+      ${renderScoringFields(s, { lunda: true, draft })}`;
+  }
   if (format === 'free') {
     return `
       ${renderPairLock(s, action)}
@@ -516,8 +524,11 @@ export function renderScoringFields(s, { lunda = false, draft = false } = {}) {
     ${gamesOn ? renderGamesFields(s, { draft }) : totalOn ? renderTotalPointsFields(s, { draft }) : renderPointsFields(s, { draft })}`;
 }
 
-function rosterHint(players) {
+function rosterHint(players, format) {
   const n = players.length;
+  if (format === 'pair-escalera') {
+    return n === 8 ? '8 игроков · 2 корта' : `${n} игроков · нужно ровно 8`;
+  }
   const courts = autoCourts(n);
   const sit = n % 4;
   if (n < 4) return `${n} игроков · нужно минимум 4`;
@@ -545,14 +556,16 @@ function renderPlayers(store, tournament) {
       </li>`,
     )
     .join('');
-  const ready = players.length >= 4;
+  const format = tournament.settings.tournamentFormat || 'free';
+  const ready = format === 'pair-escalera' ? players.length === 8 : players.length >= 4;
+  const hideAdd = Boolean(finished || (format === 'pair-escalera' && players.length >= 8));
   return `
     <section class="card">
       <h2>Участники</h2>
-      <p class="hint">${esc(rosterHint(players))}${finished ? ' Турнир завершён.' : ''}</p>
+      <p class="hint">${esc(rosterHint(players, format))}${finished ? ' Турнир завершён.' : ''}</p>
       <ul class="player-list">${rows || '<li class="empty">Пока никого нет</li>'}</ul>
       ${
-        finished
+        hideAdd
           ? ''
           : `<form class="add-row" data-action="add-player-form">
         <input class="input" id="add-name" name="name" placeholder="Имя игрока" maxlength="40" autocomplete="off" required />
@@ -570,6 +583,14 @@ function renderPlayers(store, tournament) {
 
 function renderPlay(store, tournament) {
   const playersById = new Map(tournament.players.map((p) => [p.id, p]));
+  const format = tournament.settings.tournamentFormat || 'free';
+  if (format === 'pair-escalera' && tournament.players.length !== 8) {
+    return `
+      <section class="card">
+        <h2>Игры</h2>
+        <p class="hint">Для парной эскалеры нужно ровно 8 игроков (сейчас ${tournament.players.length}).</p>
+      </section>`;
+  }
   if (tournament.players.length < 4) {
     return `
       <section class="card">
@@ -583,7 +604,7 @@ function renderPlay(store, tournament) {
   const lastDone = last && last.matches.every((m) => matchComplete(m, lastSettings, last.kind));
   const mustQual = mustStartWithQualifying(tournament.settings, tournament.rounds);
   const canQual = mustQual && (!last || lastDone);
-  const format = tournament.settings.tournamentFormat || 'free';
+  const cycleDone = pairEscaleraCycleComplete(last) && lastDone;
   const nextLabel =
     format === 'king'
       ? 'Сдвиг короля'
@@ -602,9 +623,14 @@ function renderPlay(store, tournament) {
       `<button type="button" class="btn btn-primary" id="btn-qualifying" data-action="gen-round" data-kind="qualifying">Квалификация</button>`,
     );
   }
-  if (!finished && !mustQual && (!last || lastDone)) {
+  if (!finished && !mustQual && (!last || lastDone) && !cycleDone) {
     actions.push(
       `<button type="button" class="btn btn-primary" id="btn-next-round" data-action="gen-round" data-kind="regular">${nextLabel}</button>`,
+    );
+  }
+  if (!finished && cycleDone) {
+    actions.push(
+      `<button type="button" class="btn btn-primary" id="btn-new-pair-cycle" data-action="gen-round" data-kind="regular">Новые пары составляем</button>`,
     );
   }
   const roundHasEnteredScores = Boolean(

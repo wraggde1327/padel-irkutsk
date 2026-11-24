@@ -129,6 +129,7 @@ export function idsOf(players) {
 
 /**
  * Пары по рейтингу: 1+последний, 2+(n-1), … затем сильнейшая пара против слабейшей на корте 1.
+ * При mixed: сверху вниз берём первого, с конца списка ищем первого другого пола; если нет — последнего.
  */
 export function rankingPartnerPairs(ranked, mixed) {
   const remaining = ranked.slice();
@@ -144,6 +145,11 @@ export function rankingPartnerPairs(ranked, mixed) {
     pairs.push([first, partner]);
   }
   return pairs;
+}
+
+/** Парная эскалера на 8: 1-8 / 2-7 / 3-6 / 4-5 или М+Ж с пропуском своего пола снизу. */
+export function pairEscaleraPairs(ranked, mixed) {
+  return rankingPartnerPairs(ranked, mixed);
 }
 
 export function pairsToMatches(pairs) {

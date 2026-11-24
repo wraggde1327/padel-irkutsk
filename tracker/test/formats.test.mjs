@@ -7,8 +7,10 @@ import {
   kingMove,
   mexicanoMatches,
   nextFormatRound,
+  pairEscaleraCycleComplete,
 } from '../js/formats.js';
 import { generateRound, partnerKey } from '../js/pairing.js';
+import { opponentKey } from '../js/fixed.js';
 import { mulberry32 } from '../js/rng.js';
 import { loadState, saveState, STORAGE_KEY } from '../js/state.js';
 
@@ -301,6 +303,93 @@ test('escalera round has three pairings per court', () => {
   assert.equal(result.courtGroups.length, 2);
   const seq = result.matches.filter((m) => m.court === 1).map((m) => m.sequence);
   assert.deepEqual(seq, [1, 2, 3]);
+});
+
+test('pair-escalera needs exactly 8 players', () => {
+  assert.throws(
+    () =>
+      generateRound({
+        players: nPlayers(7),
+        settings: { tournamentFormat: 'pair-escalera', pairType: 'any' },
+        kind: 'regular',
+        rng: mulberry32(1),
+      }),
+    /ровно 8/,
+  );
+});
+
+test('pair-escalera pairs 1-8 and plays a 3-round pair round-robin', () => {
+  const players = Array.from({ length: 8 }, (_, i) => ({
+    id: `p${i + 1}`,
+    name: `A${i + 1}`,
+    gender: 'M',
+  }));
+  const settings = { courts: 2, pairType: 'any', tournamentFormat: 'pair-escalera' };
+  const rounds = [];
+  let fixedPairs;
+  const seenOpp = new Set();
+  const partnerFirst = [];
+  for (let slot = 0; slot < 3; slot += 1) {
+    const result = generateRound({
+      players,
+      settings,
+      standings: [],
+      rounds,
+      kind: 'regular',
+      fixedPairs,
+      rng: mulberry32(slot + 1),
+    });
+    assert.equal(result.format, 'pair-escalera');
+    assert.equal(result.cycleSlot, slot);
+    assert.equal(result.matches.length, 2);
+    assert.equal(pairEscaleraCycleComplete(result), slot >= 2);
+    const partners = result.matches.flatMap((m) => [
+      partnerKey(m.teamA[0], m.teamA[1]),
+      partnerKey(m.teamB[0], m.teamB[1]),
+    ]);
+    if (slot === 0) {
+      assert.deepEqual(partners.sort(), ['p1:p8', 'p2:p7', 'p3:p6', 'p4:p5'].sort());
+      partnerFirst.push(...partners);
+    } else {
+      assert.deepEqual(partners.sort(), partnerFirst.slice().sort());
+    }
+    for (const m of result.matches) {
+      const k = opponentKey(m.teamA, m.teamB);
+      assert.equal(seenOpp.has(k), false, k);
+      seenOpp.add(k);
+    }
+    rounds.push({
+      kind: 'regular',
+      format: 'pair-escalera',
+      matches: result.matches,
+      fixedPairs: result.fixedPairs,
+      cycleSlot: result.cycleSlot,
+    });
+    fixedPairs = result.fixedPairs;
+  }
+  assert.equal(seenOpp.size, 6);
+  assert.equal(pairEscaleraCycleComplete(rounds.at(-1)), true);
+
+  const standings = players.map((p) => ({
+    id: p.id,
+    pointsFor: p.id === 'p3' ? 100 : 0,
+    wins: p.id === 'p3' ? 3 : 0,
+    delta: p.id === 'p3' ? 40 : 0,
+  }));
+  const next = generateRound({
+    players,
+    settings,
+    standings,
+    rounds,
+    kind: 'regular',
+    fixedPairs,
+    rng: mulberry32(9),
+  });
+  assert.equal(next.cycleSlot, 0);
+  const nextPartners = next.matches
+    .flatMap((m) => [partnerKey(m.teamA[0], m.teamA[1]), partnerKey(m.teamB[0], m.teamB[1])])
+    .sort();
+  assert.deepEqual(nextPartners, ['p3:p8', 'p1:p7', 'p2:p6', 'p4:p5'].sort());
 });
 
 test('generateRound dispatches mexicano for 12 players', () => {

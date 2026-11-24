@@ -144,6 +144,47 @@ test('mixed ranking uses opposite gender as last partner', () => {
   }
 });
 
+test('pair-escalera mixed skips same-gender from the bottom', () => {
+  const ranked = [
+    { id: '1', name: '1', gender: 'M' },
+    { id: '2', name: '2', gender: 'M' },
+    { id: '3', name: '3', gender: 'F' },
+    { id: '4', name: '4', gender: 'F' },
+    { id: '5', name: '5', gender: 'F' },
+    { id: '6', name: '6', gender: 'F' },
+    { id: '7', name: '7', gender: 'M' },
+    { id: '8', name: '8', gender: 'M' },
+  ];
+  const pairs = rankingPartnerPairs(ranked, true);
+  assert.deepEqual(
+    pairs.map((pair) => pair.map((p) => p.id)),
+    [
+      ['1', '6'],
+      ['2', '5'],
+      ['3', '8'],
+      ['4', '7'],
+    ],
+  );
+  for (const [a, b] of pairs) assert.notEqual(a.gender, b.gender);
+});
+
+test('pair-escalera mixed falls back to last remaining if no opposite gender', () => {
+  const ranked = [
+    { id: '1', name: '1', gender: 'M' },
+    { id: '2', name: '2', gender: 'M' },
+    { id: '3', name: '3', gender: 'M' },
+    { id: '4', name: '4', gender: 'M' },
+  ];
+  const pairs = rankingPartnerPairs(ranked, true);
+  assert.deepEqual(
+    pairs.map((pair) => pair.map((p) => p.id)),
+    [
+      ['1', '4'],
+      ['2', '3'],
+    ],
+  );
+});
+
 test('standing marks: medals and best woman, skip 🎉 without gender', () => {
   const mixed = standingMarks([
     { id: 'm1', name: 'Борис', gender: 'M' },

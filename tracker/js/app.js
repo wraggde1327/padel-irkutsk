@@ -254,6 +254,10 @@ function addPlayer(name) {
   if (!t || isFinished(t)) return;
   const trimmed = name.trim();
   if (!trimmed) return;
+  if ((t.settings.tournamentFormat || '') === 'pair-escalera' && t.players.length >= 8) {
+    toast('В этом режиме ровно 8 игроков.');
+    return;
+  }
   const gender = t.players.length % 2 === 0 ? 'M' : 'F';
   t.players.push({
     id: `p${t.nextPlayerNum++}`,
@@ -322,7 +326,11 @@ function generate(kind, method = null, avoidKeys = null) {
   }
   try {
     const { m, f } = genderCounts(t.players);
-    if ((t.settings.pairType === 'mixed' || t.settings.formatVariant === 'mixed') && m !== f) {
+    if (
+      (t.settings.tournamentFormat || '') !== 'pair-escalera' &&
+      (t.settings.pairType === 'mixed' || t.settings.formatVariant === 'mixed') &&
+      m !== f
+    ) {
       t.settings.pairType = 'any';
       if (t.settings.formatVariant === 'mixed') t.settings.formatVariant = 'classic';
     }
@@ -365,6 +373,7 @@ function generate(kind, method = null, avoidKeys = null) {
       override: Boolean(result.override || method),
       closedEarly: false,
       scoring: scoringSnapshot(t.settings, { forNewRound: true }),
+      cycleSlot: result.cycleSlot ?? null,
     };
     if (result.fixedPairs) t.fixedPairs = result.fixedPairs;
     t.settings.courts = Math.max(1, autoCourts(t.players.length));
