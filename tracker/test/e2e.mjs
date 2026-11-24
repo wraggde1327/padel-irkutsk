@@ -414,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.19');
+  assert.equal(sw.version, '0.7.20');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -1121,7 +1121,8 @@ async function main() {
   }
   assert.equal(await page.locator('[data-key="gamesToWin"]').count(), 5);
   assert.ok(await page.locator('[data-key="gamesToWin"][data-value="4"].is-on').count());
-  assert.equal(await page.locator('[data-key="scoringMode"]').count(), 0);
+  assert.equal(await page.locator('[data-key="scoringMode"]').count(), 2);
+  assert.ok(await page.locator('[data-key="scoringMode"][data-value="games"].is-on').count());
   assert.equal(await page.locator('[data-action="total-pts"]').count(), 0);
   assert.ok(await page.locator('[data-key="decidingGame"]').count());
   assert.match(await page.locator('.hint').allInnerTexts().then((xs) => xs.join('\n')), /ничья/);
@@ -1188,6 +1189,45 @@ async function main() {
     const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
     return t && t.rounds.length === 4 && t.rounds.at(-1).cycleSlot === 0;
   });
+
+  await resetApp(page);
+  await page.click('#btn-create');
+  await page.waitForSelector('[data-action="pick-format"][data-format="pair-escalera"]');
+  await page.click('[data-action="pick-format"][data-format="pair-escalera"]');
+  await page.waitForSelector('[data-key="scoringMode"][data-value="points"]');
+  await page.click('[data-key="scoringMode"][data-value="points"]');
+  await page.waitForSelector('[data-key="totalPoints"][data-value="21"]');
+  for (const n of [15, 17, 19, 21]) {
+    assert.ok(await page.locator(`[data-key="totalPoints"][data-value="${n}"]`).count(), `points chip ${n}`);
+  }
+  assert.ok(await page.locator('[data-key="totalPoints"][data-value="custom"]').count());
+  assert.ok(await page.locator('[data-key="totalPoints"][data-value="21"].is-on').count());
+  assert.equal(await page.locator('[data-key="gamesToWin"]').count(), 0);
+  assert.ok(await page.locator('[data-key="decidingGame"]').isDisabled());
+  assert.match(await page.locator('.hint').allInnerTexts().then((xs) => xs.join('\n')), /нечётном/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-points-settings.png'), fullPage: true });
+  await page.click('[data-key="totalPoints"][data-value="custom"]');
+  await page.waitForSelector('[data-key="customTotal"]');
+  assert.ok(await page.locator('[data-key="totalPoints"][data-value="custom"].is-on').count());
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-points-custom.png'), fullPage: true });
+  await page.click('[data-key="totalPoints"][data-value="21"]');
+  await page.fill('[data-action="draft-name"]', 'Эскалера очки');
+  await page.click('#btn-create-ok');
+  await page.waitForSelector('#add-name');
+  await addPlayers(page, NAMES8);
+  await page.click('[data-tab="play"]');
+  await page.click('#btn-next-round');
+  await page.waitForSelector('.match');
+  assert.match(await page.locator('.summary-line').innerText(), /21 очко/);
+  await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '15');
+  const pointsScore = await page.evaluate(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    const g = t?.rounds[0]?.matches[0]?.games?.[0];
+    return { a: g?.a, b: g?.b, mode: t?.settings?.scoringMode, n: t?.settings?.totalPoints };
+  });
+  assert.deepEqual(pointsScore, { a: 15, b: 6, mode: 'points', n: 21 });
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-points-round.png'), fullPage: true });
 
   await resetApp(page);
   await createViaUi(page, 'free', 'Смена пар');

@@ -187,6 +187,7 @@ test('pair-escalera defaults to games total; old Lunda save stays total', () => 
   assert.equal(fresh.scoringMode, 'games');
   assert.equal(fresh.gamesToWin, 4);
   assert.equal(fresh.gamesTotal, true);
+  assert.equal(fresh.totalPoints, 21);
   const storage = memoryStorage();
   storage.setItem(
     STORAGE_KEY,
