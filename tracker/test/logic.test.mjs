@@ -49,6 +49,7 @@ import {
   STORAGE_KEY,
 } from '../js/state.js';
 import { autoCourts, compactMatchLine, compactSittingLine, rotateSitters } from '../js/pairs.js';
+import { DEMO_PLAYERS, pickDemoPlayers } from '../js/names.js';
 import {
   isTapGesture,
   nearestWheelValue,
@@ -900,4 +901,24 @@ test('pair-escalera points standings count points scored', () => {
   assert.equal(anna.pointsFor, 15);
   assert.equal(anna.pointsAgainst, 6);
   assert.equal(anna.delta, 9);
+});
+
+test('demo name pool is 25 men and 25 women', () => {
+  assert.equal(DEMO_PLAYERS.length, 50);
+  assert.equal(DEMO_PLAYERS.filter((p) => p.gender === 'M').length, 25);
+  assert.equal(DEMO_PLAYERS.filter((p) => p.gender === 'F').length, 25);
+  assert.equal(new Set(DEMO_PLAYERS.map((p) => p.name)).size, 50);
+});
+
+test('pickDemoPlayers skips existing names and respects limit', () => {
+  const existing = DEMO_PLAYERS.slice(0, 48).map((p, i) => ({ name: p.name, id: `p${i}` }));
+  const picked = pickDemoPlayers(existing, { limit: 4, rng: mulberry32(1) });
+  assert.equal(picked.length, 2);
+  const taken = new Set(existing.map((p) => p.name));
+  for (const p of picked) assert.equal(taken.has(p.name), false);
+});
+
+test('pickDemoPlayers returns empty when pool is exhausted', () => {
+  const existing = DEMO_PLAYERS.map((p, i) => ({ name: p.name, id: `p${i}` }));
+  assert.deepEqual(pickDemoPlayers(existing, { limit: 4, rng: mulberry32(1) }), []);
 });

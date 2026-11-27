@@ -414,7 +414,7 @@ async function main() {
     return { ok: res.ok, version: /const VERSION = '([\d.]+)'/.exec(text)?.[1] || '' };
   });
   assert.equal(sw.ok, true);
-  assert.equal(sw.version, '0.7.20');
+  assert.equal(sw.version, '0.7.21');
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/);
   assert.equal(
     await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),
@@ -1156,6 +1156,30 @@ async function main() {
   assert.equal(await page.locator('.match').count(), 2);
   assert.match(await page.locator('.round').first().innerText(), /круг 1 из 3/);
   assert.match(await page.locator('.summary-line').innerText(), /4 гейма/);
+  assert.ok(await page.locator('#btn-change-pairs').isVisible());
+  assert.equal((await page.locator('#btn-change-pairs').innerText()).trim(), 'Сменить пары');
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-change-pairs.png'), fullPage: true });
+  await page.click('#btn-change-pairs');
+  await page.waitForSelector('#new-pairs');
+  assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking"]').isVisible());
+  assert.ok(await page.locator('[data-action="new-pairs"][data-method="ranking-mixed"]').isVisible());
+  assert.ok(await page.locator('[data-action="new-pairs"][data-method="random"]').isVisible());
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-change-pairs-sheet.png'), fullPage: true });
+  await page.click('[data-action="new-pairs"][data-method="random"]');
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('padel-mini-tracker-v1');
+    const store = raw && JSON.parse(raw);
+    const t = store?.tournaments.find((x) => x.id === store.ui.activeId);
+    return (
+      t &&
+      t.settings.pairMethod === 'random' &&
+      t.settings.tournamentFormat === 'pair-escalera' &&
+      t.rounds.length === 1 &&
+      t.rounds[0].format === 'pair-escalera' &&
+      t.rounds[0].cycleSlot === 0
+    );
+  });
+  assert.ok(await page.locator('#btn-change-pairs').isVisible());
   await typeScore(page, page.locator('.score-box[data-side="a"]').first(), '3');
   const firstScore = await page.evaluate(() => {
     const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1') || 'null');
@@ -1228,6 +1252,35 @@ async function main() {
   });
   assert.deepEqual(pointsScore, { a: 15, b: 6, mode: 'points', n: 21 });
   await page.screenshot({ path: join(screenshotDir, 'mobile-390-pair-escalera-points-round.png'), fullPage: true });
+
+  await resetApp(page);
+  await createViaUi(page, 'free', 'Демо +4');
+  assert.ok(await page.locator('[data-action="add-demo-four"]').isVisible());
+  assert.match((await page.locator('[data-action="add-demo-four"]').innerText()).replace(/\s+/g, ' '), /\+4/);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-players-add4.png'), fullPage: true });
+  await page.click('[data-action="add-demo-four"]');
+  await page.waitForFunction(() => document.querySelectorAll('.player-row').length === 4);
+  const demoFour = await page.evaluate(() => {
+    const store = JSON.parse(localStorage.getItem('padel-mini-tracker-v1'));
+    const t = store.tournaments.find((x) => x.id === store.ui.activeId);
+    return t.players.map((p) => ({ name: p.name, gender: p.gender }));
+  });
+  assert.equal(demoFour.length, 4);
+  assert.equal(new Set(demoFour.map((p) => p.name)).size, 4);
+  await page.screenshot({ path: join(screenshotDir, 'mobile-390-players-add4-after.png'), fullPage: true });
+  await page.click('[data-action="add-demo-four"]');
+  await page.waitForFunction(() => document.querySelectorAll('.player-row').length === 8);
+  await page.click('[data-action="add-demo-four"]');
+  await page.waitForFunction(() => document.querySelectorAll('.player-row').length === 12);
+
+  await resetApp(page);
+  await createViaUi(page, 'pair-escalera', 'Эскалера +4');
+  await page.click('[data-action="add-demo-four"]');
+  await page.waitForFunction(() => document.querySelectorAll('.player-row').length === 4);
+  await page.click('[data-action="add-demo-four"]');
+  await page.waitForFunction(() => document.querySelectorAll('.player-row').length === 8);
+  assert.equal(await page.locator('[data-action="add-demo-four"]').count(), 0);
+  assert.equal(await page.locator('#add-name').count(), 0);
 
   await resetApp(page);
   await createViaUi(page, 'free', 'Смена пар');

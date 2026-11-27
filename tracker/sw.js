@@ -1,5 +1,5 @@
 /* Версия кэша = cache-bust трекера. При релизе подними вместе с ?v= в index.html. */
-const VERSION = '0.7.20';
+const VERSION = '0.7.21';
 const CACHE = `padel-tracker-v${VERSION}`;
 const ASSETS = [
   './',
@@ -11,6 +11,7 @@ const ASSETS = [
   './js/backup.js',
   './js/fixed.js',
   './js/formats.js',
+  './js/names.js',
   './js/pairing.js',
   './js/pairs.js',
   './js/qualification.js',

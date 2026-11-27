@@ -643,7 +643,14 @@ function renderPlayers(store, tournament) {
   const hideAdd = Boolean(finished || (format === 'pair-escalera' && players.length >= 8));
   return `
     <section class="card">
-      <h2>Участники</h2>
+      <div class="players-head">
+        <h2>Участники</h2>
+        ${
+          hideAdd
+            ? ''
+            : `<button type="button" class="btn-add4" data-action="add-demo-four" aria-label="Добавить 4 случайных игрока">🎲 +4</button>`
+        }
+      </div>
       <p class="hint">${esc(rosterHint(players, format))}${finished ? ' Турнир завершён.' : ''}</p>
       <ul class="player-list">${rows || '<li class="empty">Пока никого нет</li>'}</ul>
       ${
@@ -725,8 +732,9 @@ function renderPlay(store, tournament) {
     mustQual ||
     (last && last.kind === 'qualifying' && !lastDone) ||
     (last && !lastDone && roundHasEnteredScores);
+  const canChangePairs = format === 'free' || format === 'pair-escalera';
   const pairBtn =
-    !finished && format === 'free' && !hidePairs
+    !finished && canChangePairs && !hidePairs
       ? `<button type="button" class="btn btn-ghost" data-action="open-new-pairs" id="btn-change-pairs">Сменить пары</button>`
       : '';
   const finishBtn = !finished
