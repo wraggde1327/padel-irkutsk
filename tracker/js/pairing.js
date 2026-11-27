@@ -241,6 +241,19 @@ export function generateRound({
   }
 
   if (method) {
+    if ((settings.tournamentFormat || '') === 'pair-escalera') {
+      const result = nextFormatRound({
+        players,
+        settings,
+        standings,
+        rounds,
+        courtGroups,
+        rng,
+        method,
+        avoidKeys,
+      });
+      if (result) return result;
+    }
     return nextFreeRound({ players, settings, standings, rounds, fixedPairs, method, rng, avoidKeys });
   }
 

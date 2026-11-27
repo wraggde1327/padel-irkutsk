@@ -9,7 +9,8 @@ import {
   nextFormatRound,
   pairEscaleraCycleComplete,
 } from '../js/formats.js';
-import { generateRound, partnerKey } from '../js/pairing.js';
+import { generateRound, pairEscaleraPairs, partnerKey } from '../js/pairing.js';
+import { rankPlayers } from '../js/standings.js';
 import { opponentKey } from '../js/fixed.js';
 import { mulberry32 } from '../js/rng.js';
 import { loadState, saveState, STORAGE_KEY } from '../js/state.js';
@@ -390,6 +391,111 @@ test('pair-escalera pairs 1-8 and plays a 3-round pair round-robin', () => {
     .flatMap((m) => [partnerKey(m.teamA[0], m.teamA[1]), partnerKey(m.teamB[0], m.teamB[1])])
     .sort();
   assert.deepEqual(nextPartners, ['p3:p8', 'p1:p7', 'p2:p6', 'p4:p5'].sort());
+});
+
+test('pair-escalera change-pairs starts a new 3-round cycle with chosen method', () => {
+  const players = nPlayers(8);
+  const settings = { courts: 2, pairType: 'any', tournamentFormat: 'pair-escalera', pairMethod: 'ranking' };
+  const first = generateRound({
+    players,
+    settings,
+    standings: [],
+    rounds: [],
+    kind: 'regular',
+    rng: mulberry32(1),
+  });
+  assert.equal(first.cycleSlot, 0);
+  const reshuffle = generateRound({
+    players,
+    settings: { ...settings, pairMethod: 'random' },
+    standings: [],
+    rounds: [
+      {
+        kind: 'regular',
+        format: 'pair-escalera',
+        matches: first.matches,
+        fixedPairs: first.fixedPairs,
+        cycleSlot: 0,
+      },
+    ],
+    kind: 'regular',
+    method: 'random',
+    rng: mulberry32(2),
+  });
+  assert.equal(reshuffle.format, 'pair-escalera');
+  assert.equal(reshuffle.cycleSlot, 0);
+  assert.equal(reshuffle.fixedPairs.length, 4);
+  const partners = reshuffle.matches
+    .flatMap((m) => [partnerKey(m.teamA[0], m.teamA[1]), partnerKey(m.teamB[0], m.teamB[1])])
+    .sort();
+  const next = generateRound({
+    players,
+    settings: { ...settings, pairMethod: 'random' },
+    standings: [],
+    rounds: [
+      {
+        kind: 'regular',
+        format: 'pair-escalera',
+        matches: reshuffle.matches,
+        fixedPairs: reshuffle.fixedPairs,
+        cycleSlot: 0,
+      },
+    ],
+    kind: 'regular',
+    rng: mulberry32(3),
+  });
+  assert.equal(next.cycleSlot, 1);
+  assert.deepEqual(
+    next.matches
+      .flatMap((m) => [partnerKey(m.teamA[0], m.teamA[1]), partnerKey(m.teamB[0], m.teamB[1])])
+      .sort(),
+    partners,
+  );
+});
+
+test('pair-escalera mixed default stays 1+last, not ranking-mixed', () => {
+  const players = nPlayers(8);
+  const settings = {
+    courts: 2,
+    pairType: 'mixed',
+    tournamentFormat: 'pair-escalera',
+    pairMethod: 'ranking',
+  };
+  const result = generateRound({
+    players,
+    settings,
+    standings: [],
+    rounds: [],
+    kind: 'regular',
+    rng: mulberry32(1),
+  });
+  const ranked = rankPlayers(players, [], 'points');
+  const expected = pairEscaleraPairs(ranked, true)
+    .map((p) => partnerKey(p[0].id, p[1].id))
+    .sort();
+  const actual = result.matches
+    .flatMap((m) => [partnerKey(m.teamA[0], m.teamA[1]), partnerKey(m.teamB[0], m.teamB[1])])
+    .sort();
+  assert.deepEqual(actual, expected);
+});
+
+test('pair-escalera random mixed pairs are M+F', () => {
+  const players = nPlayers(8);
+  const result = generateRound({
+    players,
+    settings: { courts: 2, pairType: 'mixed', tournamentFormat: 'pair-escalera', pairMethod: 'random' },
+    standings: [],
+    rounds: [],
+    kind: 'regular',
+    method: 'random',
+    rng: mulberry32(5),
+  });
+  const byId = new Map(players.map((p) => [p.id, p]));
+  for (const match of result.matches) {
+    for (const pair of [match.teamA, match.teamB]) {
+      assert.notEqual(byId.get(pair[0]).gender, byId.get(pair[1]).gender);
+    }
+  }
 });
 
 test('generateRound dispatches mexicano for 12 players', () => {

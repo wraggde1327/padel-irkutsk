@@ -1,4 +1,5 @@
 import { generateRound, kingOfTheCourtGroups, genderCounts, autoCourts, partnerKey } from './pairing.js';
+import { pickDemoPlayers } from './names.js';
 import {
   applyScoreWithSync,
   emptyGame,
@@ -281,6 +282,33 @@ function addPlayer(name) {
     name: trimmed,
     gender,
   });
+  t.settings.courts = Math.max(1, autoCourts(t.players.length));
+  touchTournament(t);
+  paint();
+}
+
+function addDemoFour() {
+  const t = tournament();
+  if (!t || isFinished(t)) return;
+  const format = t.settings.tournamentFormat || 'free';
+  const room = format === 'pair-escalera' ? Math.max(0, 8 - t.players.length) : 4;
+  const take = Math.min(4, room);
+  if (take <= 0) {
+    toast('В этом режиме ровно 8 игроков.');
+    return;
+  }
+  const picked = pickDemoPlayers(t.players, { limit: take });
+  if (!picked.length) {
+    toast('Свободных имён в пуле больше нет.');
+    return;
+  }
+  for (const p of picked) {
+    t.players.push({
+      id: `p${t.nextPlayerNum++}`,
+      name: p.name,
+      gender: p.gender,
+    });
+  }
   t.settings.courts = Math.max(1, autoCourts(t.players.length));
   touchTournament(t);
   paint();
@@ -714,6 +742,7 @@ function onClick(event) {
     'total-pts',
     'open-score-picker',
     'finish-tournament',
+    'add-demo-four',
   ]);
   if (t && isFinished(t) && frozen.has(action)) return;
   if (action === 'tab') {
@@ -868,6 +897,10 @@ function onClick(event) {
     t.settings.courts = Math.max(1, autoCourts(t.players.length));
     touchTournament(t);
     paint();
+    return;
+  }
+  if (action === 'add-demo-four' && t) {
+    addDemoFour();
     return;
   }
   if (action === 'gen-round') {

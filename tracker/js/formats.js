@@ -1,7 +1,7 @@
 import { countedGames, gamesSum, settingsForRound } from './scoring.js';
 import { rankPlayers } from './standings.js';
 import { shuffle } from './rng.js';
-import { nextFreeRound, playerPairsToIds, roundRobinMatchups } from './fixed.js';
+import { formPairs, nextFreeRound, playerPairsToIds, roundRobinMatchups } from './fixed.js';
 import {
   autoCourts,
   bestPairingOfFour,
@@ -606,18 +606,68 @@ export function pairEscaleraCycleComplete(round) {
   return Boolean(round && round.format === 'pair-escalera' && Number(round.cycleSlot) >= 2);
 }
 
-export function nextPairEscaleraRound({ players, settings, standings = [], rounds = [] }) {
+/** Явный/сохранённый способ смены пар; иначе верх с низом (1+последний), в т.ч. М+Ж. */
+function pairEscaleraMethod(settings, method) {
+  if (method === 'random' || method === 'ranking-mixed' || method === 'rotate-mixed' || method === 'ranking') {
+    return method;
+  }
+  const saved = settings.pairMethod;
+  if (saved === 'random' || saved === 'ranking-mixed' || saved === 'rotate-mixed') return saved;
+  return 'ranking';
+}
+
+function pairEscaleraReformPairs({ players, settings, standings, rounds, method, rng, avoidKeys }) {
+  const mixed = mixedWanted(settings);
+  const auto = pairEscaleraMethod(settings, method);
+  if (auto === 'random' || auto === 'ranking-mixed' || auto === 'rotate-mixed') {
+    const pairs = formPairs({
+      method: auto,
+      players,
+      standings,
+      rounds,
+      settings,
+      rng,
+      avoidKeys,
+    });
+    if (pairs.length !== 4) throw new Error('Не удалось собрать 4 пары.');
+    return pairs;
+  }
+  const ranked = rankPlayers(players, standings, settings.standingsSort === 'wins' ? 'wins' : 'points');
+  return pairEscaleraPairs(ranked, mixed);
+}
+
+function pairEscaleraNote(settings, method, slot) {
+  const mixed = mixedWanted(settings);
+  const auto = pairEscaleraMethod(settings, method);
+  const round = `круг ${slot + 1} из 3`;
+  if (auto === 'random') {
+    return mixed ? `Случайные пары М+Ж · ${round}` : `Случайные пары · ${round}`;
+  }
+  if (auto === 'ranking-mixed') return `Пары М+Ж по рейтингу · ${round}`;
+  if (auto === 'rotate-mixed') return `Новый партнёр М+Ж · ${round}`;
+  return mixed ? `Пары М+Ж · ${round}` : `Пары 1+последний · ${round}`;
+}
+
+export function nextPairEscaleraRound({
+  players,
+  settings,
+  standings = [],
+  rounds = [],
+  method = null,
+  rng = Math.random,
+  avoidKeys = null,
+}) {
   if (players.length !== 8) {
     throw new Error('Для парной эскалеры нужно ровно 8 игроков.');
   }
-  const mixed = mixedWanted(settings);
   const last = [...rounds].reverse().find((r) => r.kind === 'regular' && r.format === 'pair-escalera');
-  const reform = !last || last.cycleSlot == null || Number(last.cycleSlot) >= 2;
+  const reform = Boolean(method) || !last || last.cycleSlot == null || Number(last.cycleSlot) >= 2;
   let idPairs;
   let slot;
   if (reform) {
-    const ranked = rankPlayers(players, standings, 'points');
-    idPairs = playerPairsToIds(pairEscaleraPairs(ranked, mixed));
+    idPairs = playerPairsToIds(
+      pairEscaleraReformPairs({ players, settings, standings, rounds, method, rng, avoidKeys }),
+    );
     slot = 0;
   } else {
     idPairs = last.fixedPairs;
@@ -627,14 +677,11 @@ export function nextPairEscaleraRound({ players, settings, standings = [], round
     throw new Error('Не удалось собрать 4 пары.');
   }
   const result = roundRobinMatchups(idPairs, slot);
-  const note = mixed
-    ? `Пары М+Ж · круг ${slot + 1} из 3`
-    : `Пары 1+последний · круг ${slot + 1} из 3`;
   return {
     matches: result.matches,
     sitting: [],
     fixedPairs: idPairs,
-    note,
+    note: pairEscaleraNote(settings, method, slot),
     warning: '',
     format: 'pair-escalera',
     cycleSlot: slot,
